@@ -1,0 +1,20 @@
+# Compiler files
+cache/
+out/
+
+# lib
+lib/
+
+*.pyc
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*
+/broadcast/*/31337/
+
+.env
+
+
+# Credential for Google Sheet API
+credentials.json
+token.json
