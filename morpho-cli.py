@@ -7,6 +7,7 @@ import sys
 import cmd
 import math
 import competition
+from texttable import Texttable
 
 load_dotenv()
 
@@ -29,7 +30,7 @@ class MorphoCli(cmd.Cmd):
         # print(morpho.marketData('0xb323495f7e4148be5643a4ea4a8221eef163e4bccfdedc2a6f4696baacbc86cc'))
         if os.environ.get('META_MORPHO') != '':
             self.vault = MetaMorpho(self.web3, os.environ.get('META_MORPHO'))
-            print("Vault {0} loaded".format(self.vault.name))
+            #print("Vault {0} loaded".format(self.vault.name))
     
     
     def do_summary(self, line):
@@ -79,9 +80,23 @@ class MorphoCli(cmd.Cmd):
             print("First add a MetaMorpho vault")
             return
         
-        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset)
+        table = Texttable()
+        table.header(["Protocol", "Supply", "Borrow", "Obs"])
+        table.set_cols_align(['l', 'r', 'r', 'r'])
+        table.set_deco(Texttable.HEADER )
         
-        print(f"Borrow: {borrowRate*100:.2f}% Supply: {supplyRate*100:.2f}% Observations: {cnt}")
+        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset)        
+        table.add_row(["Aave v3", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
+
+        (supplyRate, borrowRate, cnt) = competition.sparkRates(self.web3) # Use DAI for Spark
+        table.add_row(["Spark DAI", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
+        table.add_row(["=========", "", "", ""])
+
+        for m in self.vault.markets:
+            rate = m.borrowRate()
+            table.add_row([m.collateralTokenSymbol, f"{self.vault.rate()*100:.2f}%", f"{rate*100:.2f}%", cnt])
+
+        print(table.draw())
 
 
     def do_reallocation(self, args):

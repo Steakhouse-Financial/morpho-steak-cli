@@ -54,3 +54,16 @@ class MetaMorpho:
                 )
         vaultRate = vaultRate / totalAssets
         print('{0} rate {1:.2f}%'.format(self.symbol, vaultRate*100.0))
+
+
+        
+    def rate(self):
+        totalAssets = self.totalAssets();
+        vaultRate = 0.0;
+        for m in self.markets:
+            position = m.position(self.address)
+            marketData = m.marketData()
+            vaultRate += marketData.supplyRate * position.supplyAssets
+
+        vaultRate = vaultRate / totalAssets
+        return vaultRate
