@@ -1,5 +1,6 @@
 import json
 from morpho.utils import POW_10_18, POW_10_36, secondToAPYRate
+from morpho.utils import rateToTargetRate
 from dataclasses import dataclass
 import time
 
@@ -26,6 +27,7 @@ class MaketData:
     utilization: float
     supplyRate: float
     borrowRate: float
+    borrowRateAtTarget: float
 
 
 
@@ -36,62 +38,87 @@ class MorphoMarket:
         self.blue = blue
         self.id = id
         params = blue.marketParams(id)
-        self.loanToken = params[0]
-        self.collateralToken = params[1]
-        self.oracle = params[2]
-        self.irm = params[3]
-        self.lltv = params[4]
-        self.irmContract = web3.eth.contract(address=web3.toChecksumAddress(self.irm), abi=json.load(open('abis/irm.json')))
-        self.oracleContract = web3.eth.contract(address=web3.toChecksumAddress(self.oracle), abi=json.load(open('abis/oracle.json')))
+        self.params = params
+        self.irmContract = web3.eth.contract(address=web3.toChecksumAddress(params.irm), abi=json.load(open('abis/irm.json')))
+        self.oracleContract = web3.eth.contract(address=web3.toChecksumAddress(params.oracle), abi=json.load(open('abis/oracle.json')))
         self.lastOracleUpdate = 0
         
         # Get some data from erc20
-        self.collateralTokenContract = web3.eth.contract(address=web3.toChecksumAddress(self.collateralToken), abi=json.load(open('abis/erc20.json')))
+        self.collateralTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.collateralToken), abi=json.load(open('abis/erc20.json')))
         self.collateralTokenDecimals = self.collateralTokenContract.functions.decimals().call()
         self.collateralTokenFactor = pow(10, self.collateralTokenDecimals)
         self.collateralTokenSymbol = self.collateralTokenContract.functions.symbol().call()
-        self.loanTokenContract = web3.eth.contract(address=web3.toChecksumAddress(self.loanToken), abi=json.load(open('abis/erc20.json')))
+        self.loanTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.loanToken), abi=json.load(open('abis/erc20.json')))
         self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
         self.loanTokenFactor = pow(10, self.loanTokenDecimals)
         self.loanTokenSymbol = self.loanTokenContract.functions.symbol().call()
+
+        # Cache elements        
+        self.lastRate = 0
+        self.lastRateUpdate = 0  
+        self.lastMarketData = None
+        self.lastMarketDataUpdate = 0
 
 
     def name(self):        
         return "{0}[{1}]".format(self.loanTokenSymbol, self.collateralTokenSymbol)
 
     def borrowRate(self):
-        marketData = self.blue.marketData(self.id)        
-        rawdata =  self.irmContract.functions.borrowRateView((self.loanToken, self.collateralToken, self.oracle, self.irm, self.lltv), marketData).call()
-        return secondToAPYRate(rawdata)
-
+        if time.time() < self.lastRateUpdate + 5:
+            return self.lastRate
         
-    def rateAtTarget(self):
-        return secondToAPYRate(self.irmContract.functions.rateAtTarget(self.id).call())
+        marketData = self.blue.marketData(self.id)        
+        rawdata =  self.irmContract.functions.borrowRateView(self.params.toTuple(), marketData).call()
+        self.lastRate = secondToAPYRate(rawdata)
+        self.lastRateUpdate = time.time()
+        return self.lastRate
+
+
+    def rateAtTarget(self):        
+        rate = self.borrowRate()        
+        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self._marketData()
+        utilization = totalBorrowAssets/totalSupplyAssets if totalSupplyAssets else 0
+        return rateToTargetRate(rate, utilization)
+
     
+    def _marketData(self):
+        if time.time() < self.lastMarketDataUpdate + 5:
+            return self.lastMarketData
+        self.lastMarketData = self.blue.marketData(self.id)
+        self.lastMarketDataUpdate = time.time()
+        return self.lastMarketData
+
+    def marketParams(self):
+        return self.params
+
     def marketData(self):
-        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self.blue.marketData(self.id)
+        
+        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self._marketData()
         rate = self.borrowRate()
-        supplyRate = rate * totalBorrowAssets / totalSupplyAssets # TODO: Don't work with fees
+        rateAtTarget = self.rateAtTarget()
+        supplyRate = rate * totalBorrowAssets / totalSupplyAssets if totalSupplyAssets else 0 # TODO: Don't work with fees
+        
         return MaketData(totalSupplyAssets/self.loanTokenFactor, 
                          totalSupplyShares/POW_10_18, 
                          totalBorrowAssets/self.loanTokenFactor, 
                          totalBorrowShares/POW_10_18, 
                          lastUpdate, 
                          fee, 
-                         totalBorrowAssets/totalSupplyAssets,
+                         totalBorrowAssets/totalSupplyAssets if totalSupplyAssets else 0,
                          supplyRate,
-                         rate)
+                         rate,
+                         rateAtTarget)        
 
 
     def position(self, address):
         ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self.blue.marketData(self.id)
         ( supplyShares , borrowShares , collateral) = self.blue.position(self.id, self.web3.toChecksumAddress(address))
         price = self.collateralPrice()
-        borrowAssets = borrowShares * (totalBorrowAssets/self.loanTokenFactor) / totalBorrowShares
+        borrowAssets = borrowShares * (totalBorrowAssets/self.loanTokenFactor) / totalBorrowShares if totalBorrowShares else 0
         collateralValue = collateral/self.collateralTokenFactor*price
         return Position(address, 
                         supplyShares/POW_10_18, 
-                        (supplyShares/POW_10_18) * (totalSupplyAssets/self.loanTokenFactor)/ (totalSupplyShares/POW_10_18),
+                        (supplyShares/POW_10_18) * (totalSupplyAssets/self.loanTokenFactor)/ (totalSupplyShares/POW_10_18)  if totalSupplyShares else 0,
                         borrowShares/POW_10_18, 
                         borrowAssets, 
                         collateral/self.collateralTokenFactor,

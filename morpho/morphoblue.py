@@ -1,8 +1,22 @@
 
 import json
 from .morphomarket import MorphoMarket
+from dataclasses import dataclass
 
 
+@dataclass
+class MaketParams:
+    loanToken: str
+    collateralToken: str
+    oracle: str
+    irm: str
+    lltv: str
+
+    def toGnosisSafeString(self):
+        return f"[\"{self.loanToken}\",\"{self.collateralToken}\",\"{self.oracle}\",\"{self.irm}\",\"{self.lltv}\"]"
+    
+    def toTuple(self):
+        return (self.loanToken, self.collateralToken, self.oracle, self.irm, self.lltv)
 
 class MorphoBlue:
     
@@ -20,7 +34,8 @@ class MorphoBlue:
         return self.contract.functions.market(id).call()
 
     def marketParams(self, id):
-        return self.contract.functions.idToMarketParams(id).call()
+        data = self.contract.functions.idToMarketParams(id).call()
+        return MaketParams(data[0], data[1], data[2], data[3], data[4])
 
     def addMarket(self, id):
         market = MorphoMarket(self.web3, self, id)
@@ -43,7 +58,7 @@ class MorphoBlue:
 
     def position(self, id, address):
         return self.contract.functions.position(id, address).call()
-    
+        
     
     def borrowers(self, id):
         borrowers = set()

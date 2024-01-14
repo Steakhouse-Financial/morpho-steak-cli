@@ -1,4 +1,5 @@
 import json
+import datetime
 
 from .morphomarket import MorphoMarket, Position
 from .morphoblue import MorphoBlue
@@ -30,19 +31,26 @@ class MetaMorpho:
         for i in range(0, nb):
             market = self.blue.addMarket(self.contract.functions.withdrawQueue(i).call())
             self.markets.append(market)
+
+    def getMarketByCollateral(self, collateral):
+        for m in self.markets:
+            if collateral == m.collateralTokenSymbol:
+                return m
+        print(f"Market with collateral {collateral} doesn't excist for the MetaMorpho")
     
     def summary(self):
         totalAssets = self.totalAssets();
-        print('{0} - {1} - Assets: {2:,.2f}'.format(self.symbol, self.name, totalAssets))
+        now = datetime.datetime.now()
+        print(f"{self.symbol} - {self.name} - Assets: {totalAssets:,.2f} - {now:%H:%M:%S}")
         vaultRate = 0.0;
         for m in self.markets:
             position = m.position(self.address)
             marketData = m.marketData()
             vaultRate += marketData.supplyRate * position.supplyAssets
-            print('{0} - rates: {1:.3f}%/{2:.3f}%, invested: {3:,.2f} ({6:.1f}%), utilization: {4:.1f}%, represents: {5:.1f}%'.format(
-                m.name(), marketData.supplyRate*100.0, marketData.borrowRate*100.0, position.supplyAssets, marketData.utilization*100.0,
-                position.supplyAssets/marketData.totalSupplyAssets*100.0,
-                position.supplyAssets/totalAssets*100.0
-                ))
+            utilization = position.supplyAssets/totalAssets*100.0 if totalAssets else 0
+            metaRepresent = position.supplyAssets/marketData.totalSupplyAssets*100.0 if marketData.totalSupplyAssets else 0
+            print(f"{m.name()} - rates: {marketData.supplyRate*100.0:.3f}%/{marketData.borrowRate*100.0:.5f}%[{marketData.borrowRateAtTarget*100.0:.5f}%] "+
+                  f"exposure: {position.supplyAssets:,.2f} ({utilization:.1f}%), util: {marketData.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}%"
+                )
         vaultRate = vaultRate / totalAssets
         print('{0} rate {1:.2f}%'.format(self.symbol, vaultRate*100.0))

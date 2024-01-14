@@ -1,9 +1,12 @@
 from web3 import Web3
 from dotenv import load_dotenv
+import morpho
 from morpho import MorphoBlue, MetaMorpho
 import os
 import sys
 import cmd
+import math
+import competition
 
 load_dotenv()
 
@@ -69,6 +72,106 @@ class MorphoCli(cmd.Cmd):
             for p in m.borrowers():
                 print(f"{p.ltv*100:.2f}% {p.address} ")
         print()
+
+
+    def do_competition(self, args):
+        if self.vault is None:
+            print("First add a MetaMorpho vault")
+            return
+        
+        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset)
+        
+        print(f"Borrow: {borrowRate*100:.2f}% Supply: {supplyRate*100:.2f}% Observations: {cnt}")
+
+
+    def do_reallocation(self, args):
+        if self.vault is None:
+            print("First add a MetaMorpho vault")
+            return
+
+        if self.vault.symbol != "steakUSDC":
+            print("Work only for steakUSDC for now")
+            return
+        
+        (a0,aRate,a1) = competition.aaveV3Rates(self.web3, self.vault.asset) 
+        
+        minRate = dict()
+        minRate["wstETH"] = aRate * 0.95
+        minRate["wbIB01"] = 0.5
+        maxRate = dict()
+        maxRate["wstETH"] = aRate
+        maxRate["wbIB01"] = 0.5
+        overflowMarket = "wbIB01"
+        OVERFLOW_AMOUNT = "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+        overflowAmount = 0
+        UTIL_UP = 0.98
+
+        overflowMarket = self.vault.getMarketByCollateral(overflowMarket)
+        overflowMarketData = overflowMarket.marketData()
+        availableLiquidity = 0
+        neededLiquidity = 0
+        actions = []
+
+        if overflowMarket in minRate:
+            print(f"You can't have a min rate for the overflow market {overflowMarket}")
+        
+        # First pass to check for excess liquidity markets
+        for m in self.vault.markets:
+            rate = m.borrowRate()
+            data = m.marketData()
+
+            if ((m.collateralTokenSymbol in minRate)
+                    and rate < minRate[m.collateralTokenSymbol]):
+                target_rate = minRate[m.collateralTokenSymbol]
+                new_util = morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate)
+                target = data.totalBorrowAssets / new_util
+                to_remove = data.totalSupplyAssets - target
+                overflowAmount += to_remove
+                availableLiquidity += to_remove
+                print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to remove {to_remove:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
+                actions.append((target, -to_remove, m.marketParams()))
+
+                
+        # Second pass to find where more liquidity is ndeed
+        for m in self.vault.markets:
+            rate = m.borrowRate()
+            data = m.marketData()
+
+            if ((m.collateralTokenSymbol in minRate)
+                    and rate > maxRate[m.collateralTokenSymbol]):
+                target_rate = maxRate[m.collateralTokenSymbol]
+                new_util = morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate)
+                target = data.totalBorrowAssets / new_util
+                to_add = target - data.totalSupplyAssets
+                neededLiquidity += to_add
+                print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
+                actions.append((target, to_add, m.marketParams()))
+
+
+        # If we don't have enough liquidity scale down expectations
+        if availableLiquidity < neededLiquidity:
+            ratio = availableLiquidity / neededLiquidity
+
+            for action in actions:
+                if action[1] > 0:
+                    action[0] = action[0]*ratio
+
+        if len(actions) == 0:
+            print("Nothing to do")
+            return
+
+        # print(actions)
+
+        script = "["
+
+        for i, action in enumerate(actions):
+            if i != 0:
+                script = script + ", "
+            script = script + f"[{action[2].toGnosisSafeString()}, \"{math.floor(action[0]*pow(10,self.vault.assetDecimals)):.0f}\"]"
+
+        script = script + f", [{overflowMarket.params.toGnosisSafeString()}, \"{OVERFLOW_AMOUNT}\"]]"
+
+        print(script)
 
 
 
