@@ -39,15 +39,21 @@ class MorphoMarket:
         self.id = id
         params = blue.marketParams(id)
         self.params = params
-        self.irmContract = web3.eth.contract(address=web3.toChecksumAddress(params.irm), abi=json.load(open('abis/irm.json')))
-        self.oracleContract = web3.eth.contract(address=web3.toChecksumAddress(params.oracle), abi=json.load(open('abis/oracle.json')))
+        if params.irm != "0x0000000000000000000000000000000000000000":
+            self.irmContract = web3.eth.contract(address=web3.toChecksumAddress(params.irm), abi=json.load(open('abis/irm.json')))
+        if params.oracle != "0x0000000000000000000000000000000000000000":
+            self.oracleContract = web3.eth.contract(address=web3.toChecksumAddress(params.oracle), abi=json.load(open('abis/oracle.json')))
         self.lastOracleUpdate = 0
         
         # Get some data from erc20
-        self.collateralTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.collateralToken), abi=json.load(open('abis/erc20.json')))
-        self.collateralTokenDecimals = self.collateralTokenContract.functions.decimals().call()
-        self.collateralTokenFactor = pow(10, self.collateralTokenDecimals)
-        self.collateralTokenSymbol = self.collateralTokenContract.functions.symbol().call()
+        self.collateralToken = params.collateralToken
+        if self.collateralToken != "0x0000000000000000000000000000000000000000":
+            self.collateralTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.collateralToken), abi=json.load(open('abis/erc20.json')))
+            self.collateralTokenDecimals = self.collateralTokenContract.functions.decimals().call()
+            self.collateralTokenFactor = pow(10, self.collateralTokenDecimals)
+            self.collateralTokenSymbol = self.collateralTokenContract.functions.symbol().call()
+        else:
+            self.collateralTokenSymbol = "Idle"
         self.loanTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.loanToken), abi=json.load(open('abis/erc20.json')))
         self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
         self.loanTokenFactor = pow(10, self.loanTokenDecimals)
@@ -59,6 +65,9 @@ class MorphoMarket:
         self.lastMarketData = None
         self.lastMarketDataUpdate = 0
 
+    def isIdleMarket(self):
+        return self.collateralToken == "0x0000000000000000000000000000000000000000"
+    
 
     def name(self):        
         return "{0}[{1}]".format(self.loanTokenSymbol, self.collateralTokenSymbol)
@@ -94,6 +103,19 @@ class MorphoMarket:
     def marketData(self):
         
         ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self._marketData()
+
+        if self.isIdleMarket():
+            return MaketData(totalSupplyAssets/self.loanTokenFactor, 
+                         totalSupplyShares/POW_10_18, 
+                         totalBorrowAssets/self.loanTokenFactor, 
+                         totalBorrowShares/POW_10_18, 
+                         lastUpdate, 
+                         fee, 
+                         0,
+                         0,
+                         0,
+                         0)        
+
         rate = self.borrowRate()
         rateAtTarget = self.rateAtTarget()
         supplyRate = rate * totalBorrowAssets / totalSupplyAssets if totalSupplyAssets else 0 # TODO: Don't work with fees

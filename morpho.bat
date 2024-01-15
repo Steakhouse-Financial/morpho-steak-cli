@@ -1,2 +1,2 @@
 @echo off
-python morpho-cli.py %1
+python morpho-cli.py %*

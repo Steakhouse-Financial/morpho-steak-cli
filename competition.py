@@ -2,7 +2,7 @@ import os
 import json
 from web3 import Web3
 
-def aaveV3Rates(web3, token, nbBlocks = 1000):
+def aaveV3Rates(web3, token, nbBlocks = 50):
     address = os.environ.get('AAVE_V3_POOL')
     contract = web3.eth.contract(address=web3.toChecksumAddress(address), abi=json.load(open('abis/aave_v3_pool.json')))
     currentBlock = web3.eth.get_block_number()

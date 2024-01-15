@@ -1,4 +1,6 @@
 from web3 import Web3
+from web3 import Account
+
 from dotenv import load_dotenv
 import morpho
 from morpho import MorphoBlue, MetaMorpho
@@ -49,7 +51,7 @@ class MorphoCli(cmd.Cmd):
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             p = m.position(address)
             print("{0}: supply: {1:,.0f} borrow: {2:,.0f} collateral: {3:,.0f} ltv: {4:.1f}%".format(m.name(), p.supplyAssets, p.borrowAssets, p.collateralValue, p.ltv*100.0))
         print()
@@ -58,7 +60,7 @@ class MorphoCli(cmd.Cmd):
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             p = m.collateralPrice()
             print("{0}/{1} = {2:.2f}".format(m.collateralTokenSymbol, m.loanTokenSymbol, p))
         print()
@@ -68,7 +70,7 @@ class MorphoCli(cmd.Cmd):
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             print(f"{m.name()}")
             for p in m.borrowers():
                 print(f"{p.ltv*100:.2f}% {p.address} ")
@@ -88,15 +90,22 @@ class MorphoCli(cmd.Cmd):
         (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset)        
         table.add_row(["Aave v3", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
 
+        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset, 7200)        
+        table.add_row(["Aave v3 1d", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
+
+        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(self.web3, self.vault.asset, 7*7200)        
+        table.add_row(["Aave v3 7d", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
+
         (supplyRate, borrowRate, cnt) = competition.sparkRates(self.web3) # Use DAI for Spark
         table.add_row(["Spark DAI", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt])
         table.add_row(["=========", "", "", ""])
 
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
-            table.add_row([m.collateralTokenSymbol, f"{self.vault.rate()*100:.2f}%", f"{rate*100:.2f}%", cnt])
+            table.add_row([m.collateralTokenSymbol, f"{self.vault.rate()*100:.2f}%", f"{rate*100:.2f}%", ""])
 
         print(table.draw())
+        print()
 
 
     def do_reallocation(self, args):
@@ -112,16 +121,14 @@ class MorphoCli(cmd.Cmd):
         
         minRate = dict()
         minRate["wstETH"] = aRate * 0.95
-        minRate["wbIB01"] = 0.5
+        minRate["wbIB01"] = 0.048
         maxRate = dict()
-        maxRate["wstETH"] = aRate
-        maxRate["wbIB01"] = 0.5
-        overflowMarket = "wbIB01"
-        OVERFLOW_AMOUNT = "115792089237316195423570985008687907853269984665640564039457584007913129639935"
-        overflowAmount = 0
-        UTIL_UP = 0.98
+        maxRate["wstETH"] = aRate * 0.95
+        maxRate["wbIB01"] = 0.048
+        OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
+        MAX_UTILIZATION_TARGET = 0.995
 
-        overflowMarket = self.vault.getMarketByCollateral(overflowMarket)
+        overflowMarket = self.vault.getIdleMarket()
         overflowMarketData = overflowMarket.marketData()
         availableLiquidity = 0
         neededLiquidity = 0
@@ -131,24 +138,24 @@ class MorphoCli(cmd.Cmd):
             print(f"You can't have a min rate for the overflow market {overflowMarket}")
         
         # First pass to check for excess liquidity markets
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
             data = m.marketData()
 
             if ((m.collateralTokenSymbol in minRate)
                     and rate < minRate[m.collateralTokenSymbol]):
                 target_rate = minRate[m.collateralTokenSymbol]
-                new_util = morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate)
+                new_util = min(MAX_UTILIZATION_TARGET, morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate))
                 target = data.totalBorrowAssets / new_util
                 to_remove = data.totalSupplyAssets - target
-                overflowAmount += to_remove
                 availableLiquidity += to_remove
                 print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to remove {to_remove:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
-                actions.append((target, -to_remove, m.marketParams()))
+                if to_remove > 0:
+                    actions.append((target, -to_remove, m.marketParams()))
 
                 
         # Second pass to find where more liquidity is ndeed
-        for m in self.vault.markets:
+        for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
             data = m.marketData()
 
@@ -160,22 +167,42 @@ class MorphoCli(cmd.Cmd):
                 to_add = target - data.totalSupplyAssets
                 neededLiquidity += to_add
                 print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
-                actions.append((target, to_add, m.marketParams()))
+                if to_add > 0:
+                    actions.append((target, to_add, m.marketParams()))
+
+        # If there is not enough liquidity from active market, add the idle market first
+        print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
+        if availableLiquidity < neededLiquidity:
+            to_remove = min(overflowMarketData.totalSupplyAssets, neededLiquidity - availableLiquidity)
+            availableLiquidity += to_remove
+            target = overflowMarketData.totalSupplyAssets - to_remove
+            print(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
+            actions = [(target, to_add, overflowMarket.marketParams())] + actions
 
 
         # If we don't have enough liquidity scale down expectations
         if availableLiquidity < neededLiquidity:
             ratio = availableLiquidity / neededLiquidity
+            print(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}. Reduce needs to {ratio*100.0:.2f}%")
 
-            for action in actions:
+            for i, action in enumerate(actions):
                 if action[1] > 0:
-                    action[0] = action[0]*ratio
+                    actions[i] = (action[0]*ratio, action[1], action[2])
 
-        if len(actions) == 0:
+        if len(actions) == 0 or availableLiquidity + neededLiquidity < float(os.environ.get('REBALANCING_THRESHOLD')):
             print("Nothing to do")
             return
 
+        
+        table = Texttable()
+        table.header(["Market", "Delta", "Util", "Obs"])
+        table.set_cols_align(['l', 'r', 'r', 'r'])
+        table.set_deco(Texttable.HEADER )
         # print(actions)
+
+        # print(table.draw())
+
+        print()
 
         script = "["
 
@@ -187,6 +214,28 @@ class MorphoCli(cmd.Cmd):
         script = script + f", [{overflowMarket.params.toGnosisSafeString()}, \"{OVERFLOW_AMOUNT}\"]]"
 
         print(script)
+
+        if args == "execute":
+            privateKey = os.environ.get('PRIVATE_KEY')
+            script = []            
+            for i, action in enumerate(actions):
+                #script = script + [((action[2].loanToken, action[2].collateralToken, action[2].oracle, action[2].irm, action[2].lltv), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
+                script = script + [(action[2].toTuple(), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
+            script = script + [(overflowMarket.params.toTuple(), OVERFLOW_AMOUNT)]
+            #print(script)
+            account = Account.privateKeyToAccount(privateKey)
+            account_address = account.address
+            #print(account_address)
+            tx = self.vault.contract.functions.reallocate(script).build_transaction({
+                    "from": account_address
+                })
+            nonce = self.web3.eth.getTransactionCount(account.address)
+            tx['nonce'] = nonce
+            signed_transaction = account.signTransaction(tx)
+            tx_hash = self.web3.eth.sendRawTransaction(signed_transaction.rawTransaction)
+            print(f"Executed with hash => {tx_hash.hex()}")
+
+        print()
 
 
 
