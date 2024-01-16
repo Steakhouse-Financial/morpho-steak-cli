@@ -244,8 +244,12 @@ class MorphoCli(cmd.Cmd):
             nonce = self.web3.eth.get_transaction_count(account.address)
             tx['nonce'] = nonce
             signed_transaction = account.signTransaction(tx)
-            tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-            log(f"Executed with hash => {tx_hash.hex()}")
+            if self.web3.eth.generate_gas_price() < Web3.to_wei(40, 'gwei'):
+                tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+                log(f"Executed with hash => {tx_hash.hex()}")
+            else:
+                log(f"gas price too high => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+
 
         print()
 
