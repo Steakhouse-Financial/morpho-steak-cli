@@ -235,15 +235,15 @@ class MorphoCli(cmd.Cmd):
                 script = script + [(action[2].toTuple(), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
             script = script + [(overflowMarket.params.toTuple(), OVERFLOW_AMOUNT)]
             #print(script)
-            account = Account.privateKeyToAccount(privateKey)
+            account = Account.from_key(privateKey)
             account_address = account.address
             #print(account_address)
             tx = self.vault.contract.functions.reallocate(script).build_transaction({
                     "from": account_address
                 })
-            nonce = self.web3.eth.get_transaction_count(account.address)
+            nonce = self.web3.eth.sign_transaction(account.address)
             tx['nonce'] = nonce
-            signed_transaction = account.signTransaction(tx)
+            signed_transaction = account.sign_transaction(tx)
             log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
             if self.web3.eth.generate_gas_price() < Web3.to_wei(40, 'gwei'):
                 tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
