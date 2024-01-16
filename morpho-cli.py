@@ -11,6 +11,8 @@ import math
 import competition
 from texttable import Texttable
 import datetime
+from web3.gas_strategies.time_based import medium_gas_price_strategy
+from web3.gas_strategies.rpc import rpc_gas_price_strategy
 
 load_dotenv()
 
@@ -35,6 +37,9 @@ class MorphoCli(cmd.Cmd):
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get('WEB3_HTTP_PROVIDER')))
         if(not self.web3.is_connected()):
             raise Exception("Issue to connect to Web3")
+        
+        
+        self.web3.eth.set_gas_price_strategy(rpc_gas_price_strategy)
         
         # init morpho
         # morpho = MorphoBlue(web3, os.environ.get('MORPHO_BLUE'), os.environ.get('MORPHO_BLUE_MARKETS'))
