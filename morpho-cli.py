@@ -239,9 +239,11 @@ class MorphoCli(cmd.Cmd):
             account_address = account.address
             #print(account_address)
             tx = self.vault.contract.functions.reallocate(script).build_transaction({
+                    'maxFeePerGas': Web3.to_wei(40, 'gwei'),
+                    'maxPriorityFeePerGas': Web3.to_wei(2, 'gwei'),
                     "from": account_address
                 })
-            nonce = self.web3.eth.sign_transaction(account.address)
+            nonce = self.web3.eth.get_transaction_count(account.address)
             tx['nonce'] = nonce
             signed_transaction = account.sign_transaction(tx)
             log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
