@@ -10,8 +10,17 @@ import cmd
 import math
 import competition
 from texttable import Texttable
+import datetime
 
 load_dotenv()
+
+def log(message, addTimestamp = True):
+    print(os.environ.get('LOG_FILE'))
+    if os.environ.get('LOG_FILE') != "":
+        with open(os.environ.get('LOG_FILE'), 'a') as file:
+            if addTimestamp:
+                file.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S - "))
+            file.write(f"{message}\n")
 
 
 class MorphoCli(cmd.Cmd):
@@ -166,7 +175,7 @@ class MorphoCli(cmd.Cmd):
                 target = data.totalBorrowAssets / new_util
                 to_add = target - data.totalSupplyAssets
                 neededLiquidity += to_add
-                print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
+                log(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
                 if to_add > 0:
                     actions.append((target, to_add, m.marketParams()))
 
@@ -176,28 +185,31 @@ class MorphoCli(cmd.Cmd):
             to_remove = min(overflowMarketData.totalSupplyAssets, neededLiquidity - availableLiquidity)
             availableLiquidity += to_remove
             target = overflowMarketData.totalSupplyAssets - to_remove
-            print(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
+            log(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
             actions = [(target, -to_remove, overflowMarket.marketParams())] + actions
 
 
         # If we don't have enough liquidity scale down expectations
         if availableLiquidity < neededLiquidity:
             ratio = availableLiquidity / neededLiquidity
-            print(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}). Reduce needs to {ratio*100.0:.2f}%")
+            log(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}). Reduce needs to {ratio*100.0:.2f}%")
+
+            neededLiquidity = availableLiquidity
 
             for i, action in enumerate(actions):
                 if action[1] > 0 and action[1] > 0:
                     actions[i] = (action[0]-(1-ratio)*action[1], ratio*action[1], action[2])
 
-        if len(actions) == 0 or availableLiquidity + neededLiquidity < float(os.environ.get('REBALANCING_THRESHOLD')):
-            print("Nothing to do")
+        if len(actions) == 0 or max(availableLiquidity, neededLiquidity) < float(os.environ.get('REBALANCING_THRESHOLD')):
+            log(f"Nothing to do {max(availableLiquidity, neededLiquidity):,.0f} < {float(os.environ.get('REBALANCING_THRESHOLD')):,.0f}")
+            print()
             return
 
-        
-        table = Texttable()
-        table.header(["Market", "Delta", "Util", "Obs"])
-        table.set_cols_align(['l', 'r', 'r', 'r'])
-        table.set_deco(Texttable.HEADER )
+        # Tbd
+        #table = Texttable()
+        #table.header(["Market", "Delta", "Util", "Obs"])
+        #table.set_cols_align(['l', 'r', 'r', 'r'])
+        #table.set_deco(Texttable.HEADER )
         # print(actions)
 
         # print(table.draw())
@@ -233,7 +245,7 @@ class MorphoCli(cmd.Cmd):
             tx['nonce'] = nonce
             signed_transaction = account.signTransaction(tx)
             tx_hash = self.web3.eth.sendRawTransaction(signed_transaction.rawTransaction)
-            print(f"Executed with hash => {tx_hash.hex()}")
+            log(f"Executed with hash => {tx_hash.hex()}")
 
         print()
 

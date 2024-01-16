@@ -18,3 +18,4 @@ lib/
 # Credential for Google Sheet API
 credentials.json
 token.json
+*.log
