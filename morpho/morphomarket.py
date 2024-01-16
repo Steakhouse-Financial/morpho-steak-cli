@@ -40,21 +40,21 @@ class MorphoMarket:
         params = blue.marketParams(id)
         self.params = params
         if params.irm != "0x0000000000000000000000000000000000000000":
-            self.irmContract = web3.eth.contract(address=web3.toChecksumAddress(params.irm), abi=json.load(open('abis/irm.json')))
+            self.irmContract = web3.eth.contract(address=web3.to_checksum_address(params.irm), abi=json.load(open('abis/irm.json')))
         if params.oracle != "0x0000000000000000000000000000000000000000":
-            self.oracleContract = web3.eth.contract(address=web3.toChecksumAddress(params.oracle), abi=json.load(open('abis/oracle.json')))
+            self.oracleContract = web3.eth.contract(address=web3.to_checksum_address(params.oracle), abi=json.load(open('abis/oracle.json')))
         self.lastOracleUpdate = 0
         
         # Get some data from erc20
         self.collateralToken = params.collateralToken
         if self.collateralToken != "0x0000000000000000000000000000000000000000":
-            self.collateralTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.collateralToken), abi=json.load(open('abis/erc20.json')))
+            self.collateralTokenContract = web3.eth.contract(address=web3.to_checksum_address(params.collateralToken), abi=json.load(open('abis/erc20.json')))
             self.collateralTokenDecimals = self.collateralTokenContract.functions.decimals().call()
             self.collateralTokenFactor = pow(10, self.collateralTokenDecimals)
             self.collateralTokenSymbol = self.collateralTokenContract.functions.symbol().call()
         else:
             self.collateralTokenSymbol = "Idle"
-        self.loanTokenContract = web3.eth.contract(address=web3.toChecksumAddress(params.loanToken), abi=json.load(open('abis/erc20.json')))
+        self.loanTokenContract = web3.eth.contract(address=web3.to_checksum_address(params.loanToken), abi=json.load(open('abis/erc20.json')))
         self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
         self.loanTokenFactor = pow(10, self.loanTokenDecimals)
         self.loanTokenSymbol = self.loanTokenContract.functions.symbol().call()
@@ -134,7 +134,7 @@ class MorphoMarket:
 
     def position(self, address):
         ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self.blue.marketData(self.id)
-        ( supplyShares , borrowShares , collateral) = self.blue.position(self.id, self.web3.toChecksumAddress(address))
+        ( supplyShares , borrowShares , collateral) = self.blue.position(self.id, self.web3.to_checksum_address(address))
         if  self.isIdleMarket():
             return Position(address, 
                         supplyShares/POW_10_18, 

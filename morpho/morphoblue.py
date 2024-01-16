@@ -23,7 +23,7 @@ class MorphoBlue:
     def __init__(self, web3, address, markets = ''):
         self.web3 = web3
         self.abi = json.load(open('abis/morphoblue.json'))
-        self.address = web3.toChecksumAddress(address)
+        self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
         self.markets = []
         for id in markets.split(','):
@@ -62,7 +62,7 @@ class MorphoBlue:
     
     def borrowers(self, id):
         borrowers = set()
-        logs = self.contract.events.Borrow().createFilter(fromBlock=18920518, argument_filters={'id':id}).get_all_entries()
+        logs = self.contract.events.Borrow().create_filter(fromBlock=18920518, argument_filters={'id':id}).get_all_entries()
         for log in logs:
             borrowers.add(log.args.onBehalf)
         return list(borrowers)

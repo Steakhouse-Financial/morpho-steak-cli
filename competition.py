@@ -4,13 +4,13 @@ from web3 import Web3
 
 def aaveV3Rates(web3, token, nbBlocks = 50):
     address = os.environ.get('AAVE_V3_POOL')
-    contract = web3.eth.contract(address=web3.toChecksumAddress(address), abi=json.load(open('abis/aave_v3_pool.json')))
+    contract = web3.eth.contract(address=web3.to_checksum_address(address), abi=json.load(open('abis/aave_v3_pool.json')))
     currentBlock = web3.eth.get_block_number()
-    logs = contract.events.ReserveDataUpdated().createFilter(fromBlock=currentBlock - nbBlocks, argument_filters={'reserve':token}).get_all_entries()
+    logs = contract.events.ReserveDataUpdated().create_filter(fromBlock=currentBlock - nbBlocks, argument_filters={'reserve':token}).get_all_entries()
     cnt = len(logs)
 
     if cnt == 0:
-        logs = contract.events.ReserveDataUpdated().createFilter(fromBlock=currentBlock - nbBlocks*10, argument_filters={'reserve':token}).get_all_entries()
+        logs = contract.events.ReserveDataUpdated().create_filter(fromBlock=currentBlock - nbBlocks*10, argument_filters={'reserve':token}).get_all_entries()
         cnt = len(logs)
 
 
@@ -29,13 +29,13 @@ def aaveV3Rates(web3, token, nbBlocks = 50):
 
 def sparkRates(web3, token = "0x6b175474e89094c44da98b954eedeac495271d0f", nbBlocks = 1000):
     address = os.environ.get('SPARK_POOL')
-    contract = web3.eth.contract(address=web3.toChecksumAddress(address), abi=json.load(open('abis/aave_v3_pool.json')))
+    contract = web3.eth.contract(address=web3.to_checksum_address(address), abi=json.load(open('abis/aave_v3_pool.json')))
     currentBlock = web3.eth.get_block_number()
-    logs = contract.events.ReserveDataUpdated().createFilter(fromBlock=currentBlock - nbBlocks, argument_filters={'reserve':token}).get_all_entries()
+    logs = contract.events.ReserveDataUpdated().create_filter(fromBlock=currentBlock - nbBlocks, argument_filters={'reserve':token}).get_all_entries()
     cnt = len(logs)
 
     if cnt == 0:
-        logs = contract.events.ReserveDataUpdated().createFilter(fromBlock=currentBlock - nbBlocks*10, argument_filters={'reserve':token}).get_all_entries()
+        logs = contract.events.ReserveDataUpdated().create_filter(fromBlock=currentBlock - nbBlocks*10, argument_filters={'reserve':token}).get_all_entries()
         cnt = len(logs)
 
 

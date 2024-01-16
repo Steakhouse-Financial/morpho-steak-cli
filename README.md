@@ -2,6 +2,10 @@
 
 Command line interface for Morpho
 
+## Install
+
+You should install package python-dotenv instead of dotenv which doesn't work
+
 ## How to use
 
 Create a .env file based on .env-default updating at least WEB3_HTTP_PROVIDER

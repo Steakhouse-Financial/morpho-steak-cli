@@ -8,7 +8,7 @@ class MetaMorpho:
     def __init__(self, web3, address):
         self.address = address
         self.abi = json.load(open('abis/metamorpho.json'))
-        self.address = web3.toChecksumAddress(address)
+        self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
         morphoAddress = self.contract.functions.MORPHO().call()
         self.symbol = self.contract.functions.symbol().call()

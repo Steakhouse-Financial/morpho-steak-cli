@@ -33,7 +33,7 @@ class MorphoCli(cmd.Cmd):
         cmd.Cmd.__init__(self)
         # Connect to web3
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get('WEB3_HTTP_PROVIDER')))
-        if(not self.web3.isConnected()):
+        if(not self.web3.is_connected()):
             raise Exception("Issue to connect to Web3")
         
         # init morpho
@@ -241,10 +241,10 @@ class MorphoCli(cmd.Cmd):
             tx = self.vault.contract.functions.reallocate(script).build_transaction({
                     "from": account_address
                 })
-            nonce = self.web3.eth.getTransactionCount(account.address)
+            nonce = self.web3.eth.get_transaction_count(account.address)
             tx['nonce'] = nonce
             signed_transaction = account.signTransaction(tx)
-            tx_hash = self.web3.eth.sendRawTransaction(signed_transaction.rawTransaction)
+            tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
             log(f"Executed with hash => {tx_hash.hex()}")
 
         print()
