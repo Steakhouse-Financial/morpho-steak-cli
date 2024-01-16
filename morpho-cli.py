@@ -121,10 +121,10 @@ class MorphoCli(cmd.Cmd):
         
         minRate = dict()
         minRate["wstETH"] = aRate * 0.95
-        minRate["wbIB01"] = 0.048
+        minRate["wbIB01"] = 0.0477
         maxRate = dict()
         maxRate["wstETH"] = aRate * 0.95
-        maxRate["wbIB01"] = 0.048
+        maxRate["wbIB01"] = 0.0477
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
 
@@ -177,17 +177,17 @@ class MorphoCli(cmd.Cmd):
             availableLiquidity += to_remove
             target = overflowMarketData.totalSupplyAssets - to_remove
             print(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
-            actions = [(target, to_add, overflowMarket.marketParams())] + actions
+            actions = [(target, -to_remove, overflowMarket.marketParams())] + actions
 
 
         # If we don't have enough liquidity scale down expectations
         if availableLiquidity < neededLiquidity:
             ratio = availableLiquidity / neededLiquidity
-            print(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}. Reduce needs to {ratio*100.0:.2f}%")
+            print(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}). Reduce needs to {ratio*100.0:.2f}%")
 
             for i, action in enumerate(actions):
-                if action[1] > 0:
-                    actions[i] = (action[0]*ratio, action[1], action[2])
+                if action[1] > 0 and action[1] > 0:
+                    actions[i] = (action[0]-(1-ratio)*action[1], ratio*action[1], action[2])
 
         if len(actions) == 0 or availableLiquidity + neededLiquidity < float(os.environ.get('REBALANCING_THRESHOLD')):
             print("Nothing to do")

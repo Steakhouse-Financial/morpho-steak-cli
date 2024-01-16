@@ -135,6 +135,11 @@ class MorphoMarket:
     def position(self, address):
         ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self.blue.marketData(self.id)
         ( supplyShares , borrowShares , collateral) = self.blue.position(self.id, self.web3.toChecksumAddress(address))
+        if  self.isIdleMarket():
+            return Position(address, 
+                        supplyShares/POW_10_18, 
+                        (supplyShares/POW_10_18) * (totalSupplyAssets/self.loanTokenFactor)/ (totalSupplyShares/POW_10_18)  if totalSupplyShares else 0,
+                        0, 0, 0, 0, 0)
         price = self.collateralPrice()
         borrowAssets = borrowShares * (totalBorrowAssets/self.loanTokenFactor) / totalBorrowShares if totalBorrowShares else 0
         collateralValue = collateral/self.collateralTokenFactor*price

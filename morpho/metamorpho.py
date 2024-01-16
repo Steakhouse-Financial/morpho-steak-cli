@@ -52,28 +52,32 @@ class MetaMorpho:
         now = datetime.datetime.now()
         print(f"{self.symbol} - {self.name} - Assets: {totalAssets:,.2f} - {now:%H:%M:%S}")
         vaultRate = 0.0;
+        liquidity = 0.0
         for m in filter(lambda x: not x.isIdleMarket(), self.markets):
             position = m.position(self.address)
             marketData = m.marketData()
             vaultRate += marketData.supplyRate * position.supplyAssets
-            utilization = position.supplyAssets/totalAssets*100.0 if totalAssets else 0
+            share = position.supplyAssets/totalAssets*100.0 if totalAssets else 0
             metaRepresent = position.supplyAssets/marketData.totalSupplyAssets*100.0 if marketData.totalSupplyAssets else 0
+            liquidity += marketData.totalSupplyAssets - marketData.totalBorrowAssets
             print(f"{m.name()} - rates: {marketData.supplyRate*100.0:.3f}%/{marketData.borrowRate*100.0:.5f}%[{marketData.borrowRateAtTarget*100.0:.5f}%] "+
-                  f"exposure: {position.supplyAssets:,.2f} ({utilization:.1f}%), util: {marketData.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}%"
+                  f"exposure: {position.supplyAssets:,.2f} ({share:.1f}%), util: {marketData.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}%"
                 )
             
         if self.hasIdleMarket():
             m = self.getIdleMarket()            
+            position = m.position(self.address)
             marketData = m.marketData()
             vaultRate += marketData.supplyRate * position.supplyAssets
-            utilization = position.supplyAssets/totalAssets*100.0 if totalAssets else 0
+            share = position.supplyAssets/totalAssets*100.0 if totalAssets else 0
             metaRepresent = position.supplyAssets/marketData.totalSupplyAssets*100.0 if marketData.totalSupplyAssets else 0
+            liquidity += marketData.totalSupplyAssets - marketData.totalBorrowAssets
             print(f"{m.name()} - "+
-                  f"exposure: {position.supplyAssets:,.2f} ({utilization:.1f}%), vault %: {metaRepresent:.1f}%"
+                  f"exposure: {position.supplyAssets:,.2f} ({share:.1f}%), vault %: {metaRepresent:.1f}%"
                 )
             
         vaultRate = vaultRate / totalAssets
-        print('{0} rate {1:.2f}%'.format(self.symbol, vaultRate*100.0))
+        print(f"{self.symbol} rate {vaultRate*100.0:.2f}%, total liquidity {liquidity:,.0f}")
 
 
         
