@@ -250,6 +250,11 @@ class MorphoCli(cmd.Cmd):
         print()
 
 
+    def do_full(self, args):
+        self.do_summary()
+        self.do_competition()
+        self.do_reallocation("execute")
+        self.do_borrowers()
 
 
 
