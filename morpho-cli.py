@@ -15,7 +15,7 @@ import datetime
 load_dotenv()
 
 def log(message, addTimestamp = True):
-    print(os.environ.get('LOG_FILE'))
+    print(message)
     if os.environ.get('LOG_FILE') != "":
         with open(os.environ.get('LOG_FILE'), 'a') as file:
             if addTimestamp:
