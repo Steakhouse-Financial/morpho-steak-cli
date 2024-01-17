@@ -234,7 +234,7 @@ class MorphoCli(cmd.Cmd):
 
         if args == "execute":
             privateKey = os.environ.get('PRIVATE_KEY')
-            maxGas = 0+os.environ.get('MAX_GWEI')
+            maxGas = int(os.environ.get('MAX_GWEI'))
             script = []            
             for i, action in enumerate(actions):
                 #script = script + [((action[2].loanToken, action[2].collateralToken, action[2].oracle, action[2].irm, action[2].lltv), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
