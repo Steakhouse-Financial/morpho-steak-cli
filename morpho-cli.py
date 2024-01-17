@@ -234,6 +234,7 @@ class MorphoCli(cmd.Cmd):
 
         if args == "execute":
             privateKey = os.environ.get('PRIVATE_KEY')
+            maxGas = 0+os.environ.get('MAX_GWEI')
             script = []            
             for i, action in enumerate(actions):
                 #script = script + [((action[2].loanToken, action[2].collateralToken, action[2].oracle, action[2].irm, action[2].lltv), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
@@ -250,7 +251,7 @@ class MorphoCli(cmd.Cmd):
             tx['nonce'] = nonce
             signed_transaction = account.sign_transaction(tx)
             log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
-            if self.web3.eth.generate_gas_price() < Web3.to_wei(40, 'gwei'):
+            if self.web3.eth.generate_gas_price() < Web3.to_wei(maxGas, 'gwei'):
                 tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
                 log(f"Executed with hash => {tx_hash.hex()}")
             else:
