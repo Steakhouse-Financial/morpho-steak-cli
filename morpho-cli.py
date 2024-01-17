@@ -137,7 +137,7 @@ class MorphoCli(cmd.Cmd):
         minRate["wstETH"] = aRate * 0.85
         minRate["wbIB01"] = 0.047
         maxRate = dict()
-        maxRate["wstETH"] = aRate * 0.95
+        maxRate["wstETH"] = aRate * 0.85
         maxRate["wbIB01"] = 0.047
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
