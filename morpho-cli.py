@@ -133,11 +133,13 @@ class MorphoCli(cmd.Cmd):
         
         (a0,aRate,a1) = competition.aaveV3Rates(self.web3, self.vault.asset) 
         
+        (a0,aRateDay,a1) = competition.aaveV3Rates(self.web3, self.vault.asset, 7200) 
+        
         minRate = dict()
-        minRate["wstETH"] = aRate * 0.85
+        minRate["wstETH"] = min(aRate, aRateDay) * 0.90
         minRate["wbIB01"] = 0.047
         maxRate = dict()
-        maxRate["wstETH"] = aRate * 0.85
+        maxRate["wstETH"] = min(aRate, aRateDay) * 0.90
         maxRate["wbIB01"] = 0.047
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
