@@ -193,7 +193,7 @@ class MorphoCli(cmd.Cmd):
             availableLiquidity += to_remove
             target = overflowMarketData.totalSupplyAssets - to_remove
             log(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
-            actions = [(target, -to_remove, overflowMarket.marketParams())] + actions
+            actions = [(0, -to_remove, overflowMarket.marketParams())] + actions # 0 instead of target just for safety
 
 
         # If we don't have enough liquidity scale down expectations
