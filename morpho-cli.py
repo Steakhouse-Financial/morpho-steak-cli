@@ -143,11 +143,11 @@ class MorphoCli(cmd.Cmd):
         minRate = dict()
         minRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         minRate["wbIB01"] = targetBaseRate + 0.001
-        minRate["sDAI"] = 0.01
+        minRate["sDAI"] = targetBaseRate
         maxRate = dict()
         maxRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         maxRate["wbIB01"] = targetBaseRate + 0.001
-        maxRate["sDAI"] = 0.01
+        maxRate["sDAI"] = targetBaseRate
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
 
