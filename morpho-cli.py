@@ -131,20 +131,25 @@ class MorphoCli(cmd.Cmd):
             print("Work only for steakUSDC for now")
             return
         
+
+        sDAIBotUnwinded = False
+
         (a0,aRate,a1) = competition.aaveV3Rates(self.web3, self.vault.asset) 
         
         (a0,aRateDay,a1) = competition.aaveV3Rates(self.web3, self.vault.asset, 7200) 
         
+        targetBaseRate = 0.047
+
         minRate = dict()
-        minRate["wstETH"] = 0.047 #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
-        minRate["wbIB01"] = 0.047
+        minRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        minRate["wbIB01"] = targetBaseRate + 0.001
         maxRate = dict()
-        maxRate["wstETH"] = 0.047 #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
-        maxRate["wbIB01"] = 0.047
+        maxRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        maxRate["wbIB01"] = targetBaseRate + 0.001
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
 
-        overflowMarket = self.vault.getIdleMarket()
+        overflowMarket = self.vault.getMarketByCollateral("sDAI")
         overflowMarketData = overflowMarket.marketData()
         availableLiquidity = 0
         neededLiquidity = 0
@@ -153,17 +158,29 @@ class MorphoCli(cmd.Cmd):
         if overflowMarket in minRate:
             print(f"You can't have a min rate for the overflow market {overflowMarket}")
         
+
+        # Ensure we empty the idle market
+        idleMarket = self.vault.getIdleMarket()
+        idleMarketData = idleMarket.marketData()
+        idlePosition = idleMarket.position(self.vault.address)
+        if idleMarketData.totalSupplyAssets > 0:
+            log(f"Idle: Need to remove {idleMarketData.totalSupplyAssets:,.0f} ({idleMarketData.totalSupplyAssets:,.0f} -> {0:,.0f})")
+            availableLiquidity += idlePosition.supplyAssets
+            actions = [(0, -idleMarketData.totalSupplyAssets, idleMarket.marketParams())] + actions # 0 instead of target just for safety
+
+
         # First pass to check for excess liquidity markets
         for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
             data = m.marketData()
+            position = m.position(self.vault.address)
 
             if ((m.collateralTokenSymbol in minRate)
                     and rate < minRate[m.collateralTokenSymbol]):
                 target_rate = minRate[m.collateralTokenSymbol]
                 new_util = min(MAX_UTILIZATION_TARGET, morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate))
                 target = data.totalBorrowAssets / new_util
-                to_remove = data.totalSupplyAssets - target
+                to_remove = position.supplyAssets- target
                 availableLiquidity += to_remove
                 print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to remove {to_remove:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
                 if to_remove > 0:
@@ -174,12 +191,17 @@ class MorphoCli(cmd.Cmd):
         for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
             data = m.marketData()
+            position = m.position(self.vault.address)
 
             if ((m.collateralTokenSymbol in minRate)
                     and rate > maxRate[m.collateralTokenSymbol]):
                 target_rate = maxRate[m.collateralTokenSymbol]
                 new_util = morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate)
-                target = data.totalBorrowAssets / new_util
+                if new_util > 0:
+                    target = data.totalBorrowAssets / new_util
+                else:
+                    target = data.totalBorrowAssets + 100000 * pow(10, self.vault.assetDecimals) ## Min allocation if no borrow
+
                 to_add = target - data.totalSupplyAssets
                 neededLiquidity += to_add
                 log(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
@@ -188,12 +210,17 @@ class MorphoCli(cmd.Cmd):
 
         # If there is not enough liquidity from active market, add the idle market first
         print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
-        if availableLiquidity < neededLiquidity:
-            to_remove = min(overflowMarketData.totalSupplyAssets, neededLiquidity - availableLiquidity)
-            availableLiquidity += to_remove
-            target = overflowMarketData.totalSupplyAssets - to_remove
-            log(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
-            actions = [(0, -to_remove, overflowMarket.marketParams())] + actions # 0 instead of target just for safety
+        if availableLiquidity < neededLiquidity or overflowMarket.borrowRate() > targetBaseRate + 0.01:
+            # Unwind the sDAI bot
+            sDAIBotUnwinded = True
+            
+            # take all liquidity from sDAI market
+            overflowLiquidity = overflowMarketData.totalSupplyAssets - overflowMarketData.totalBorrowAssets
+            if overflowLiquidity > 0:
+                log(f"{m.collateralTokenSymbol}: Take all liquidity {availableLiquidity:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {overflowMarketData.totalBorrowAssets:,.0f})")
+                if to_add > 0:
+                        actions.append((overflowMarketData.totalBorrowAssets, -overflowLiquidity, m.marketParams()))
+
 
 
         # If we don't have enough liquidity scale down expectations
