@@ -161,14 +161,6 @@ class MorphoCli(cmd.Cmd):
             print(f"You can't have a min rate for the overflow market {overflowMarket}")
         
 
-        # Ensure we empty the idle market
-        idleMarket = self.vault.getIdleMarket()
-        idleMarketData = idleMarket.marketData()
-        idlePosition = idleMarket.position(self.vault.address)
-        if idleMarketData.totalSupplyAssets > 0:
-            log(f"Idle: Need to remove {idleMarketData.totalSupplyAssets:,.0f} ({idleMarketData.totalSupplyAssets:,.0f} -> {0:,.0f})")
-            availableLiquidity += idlePosition.supplyAssets
-            actions = [(0, -idleMarketData.totalSupplyAssets, idleMarket.marketParams())] + actions # 0 instead of target just for safety
 
 
         # First pass to check for excess liquidity markets
@@ -188,7 +180,6 @@ class MorphoCli(cmd.Cmd):
                 if to_remove > 0:
                     actions.append((target, -to_remove, m.marketParams()))
 
-                
         # Second pass to find where more liquidity is ndeed
         for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
@@ -210,6 +201,14 @@ class MorphoCli(cmd.Cmd):
                 if to_add > 0:
                     actions.append((target, to_add, m.marketParams()))
 
+
+        if availableLiquidity < neededLiquidity:
+            position = overflowMarket.position(self.vault.address)
+            to_remove = min(position.supplyAssets, neededLiquidity - availableLiquidity)
+            availableLiquidity += to_remove
+            target = overflowMarketData.totalSupplyAssets - to_remove
+            log(f"Idle: Need to remove {to_remove:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {target:,.0f})")
+            actions = [(0, -to_remove, overflowMarket.marketParams())] + actions # 0 instead of target just for safety
 
 
         # If we don't have enough liquidity scale down expectations
