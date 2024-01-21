@@ -143,13 +143,15 @@ class MorphoCli(cmd.Cmd):
         minRate = dict()
         minRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         minRate["wbIB01"] = targetBaseRate + 0.001
+        minRate["sDAI"] = 0.01
         maxRate = dict()
         maxRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         maxRate["wbIB01"] = targetBaseRate + 0.001
+        maxRate["sDAI"] = 0.01
         OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
         MAX_UTILIZATION_TARGET = 0.995
 
-        overflowMarket = self.vault.getMarketByCollateral("sDAI")
+        overflowMarket = self.vault.getIdleMarket()
         overflowMarketData = overflowMarket.marketData()
         availableLiquidity = 0
         neededLiquidity = 0
@@ -207,19 +209,6 @@ class MorphoCli(cmd.Cmd):
                 log(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
                 if to_add > 0:
                     actions.append((target, to_add, m.marketParams()))
-
-        # If there is not enough liquidity from active market, add the idle market first
-        print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
-        if availableLiquidity < neededLiquidity or overflowMarket.borrowRate() > targetBaseRate + 0.01:
-            # Unwind the sDAI bot
-            sDAIBotUnwinded = True
-            
-            # take all liquidity from sDAI market
-            overflowLiquidity = overflowMarketData.totalSupplyAssets - overflowMarketData.totalBorrowAssets
-            if overflowLiquidity > 0:
-                log(f"{m.collateralTokenSymbol}: Take all liquidity {availableLiquidity:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {overflowMarketData.totalBorrowAssets:,.0f})")
-                if to_add > 0:
-                        actions.append((overflowMarketData.totalBorrowAssets, -overflowLiquidity, m.marketParams()))
 
 
 
