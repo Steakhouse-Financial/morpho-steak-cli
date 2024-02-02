@@ -13,7 +13,9 @@ class Position:
     borrowAssets: float
     collateral: float
     collateralValue: float
+    collateralPrice: float
     ltv: float
+    healthRatio: float
 
     
 @dataclass
@@ -22,7 +24,6 @@ class MaketData:
     totalSupplyShares: float
     totalBorrowAssets: float
     totalBorrowShares: float
-    lastUpdate: float
     fee: float
     utilization: float
     supplyRate: float
@@ -44,6 +45,7 @@ class MorphoMarket:
         if params.oracle != "0x0000000000000000000000000000000000000000":
             self.oracleContract = web3.eth.contract(address=web3.to_checksum_address(params.oracle), abi=json.load(open('abis/oracle.json')))
         self.lastOracleUpdate = 0
+        self.lltv = self.params.lltv / POW_10_18
         
         # Get some data from erc20
         self.collateralToken = params.collateralToken
@@ -54,6 +56,7 @@ class MorphoMarket:
             self.collateralTokenSymbol = self.collateralTokenContract.functions.symbol().call()
         else:
             self.collateralTokenSymbol = "Idle"
+        self.loanToken = params.loanToken
         self.loanTokenContract = web3.eth.contract(address=web3.to_checksum_address(params.loanToken), abi=json.load(open('abis/erc20.json')))
         self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
         self.loanTokenFactor = pow(10, self.loanTokenDecimals)
@@ -73,21 +76,11 @@ class MorphoMarket:
         return "{0}[{1}]".format(self.loanTokenSymbol, self.collateralTokenSymbol)
 
     def borrowRate(self):
-        if time.time() < self.lastRateUpdate + 5:
-            return self.lastRate
-        
-        marketData = self.blue.marketData(self.id)        
-        rawdata =  self.irmContract.functions.borrowRateView(self.params.toTuple(), marketData).call()
-        self.lastRate = secondToAPYRate(rawdata)
-        self.lastRateUpdate = time.time()
-        return self.lastRate
+        return self.marketData().borrowRate
 
 
     def rateAtTarget(self):        
-        rate = self.borrowRate()        
-        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self._marketData()
-        utilization = totalBorrowAssets/totalSupplyAssets if totalSupplyAssets else 0
-        return rateToTargetRate(rate, utilization)
+        return self.marketData().borrowRateAtTarget
 
     
     def _marketData(self):
@@ -101,56 +94,53 @@ class MorphoMarket:
         return self.params
 
     def marketData(self):
-        
-        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self._marketData()
+        (totalSupplyAssets, totalSupplyShares , totalBorrowAssets, totalBorrowShares, fee, utilization, supplyRate, borrowRate) = self._marketData()
 
         if self.isIdleMarket():
             return MaketData(totalSupplyAssets/self.loanTokenFactor, 
                          totalSupplyShares/POW_10_18, 
                          totalBorrowAssets/self.loanTokenFactor, 
                          totalBorrowShares/POW_10_18, 
-                         lastUpdate, 
                          fee, 
                          0,
                          0,
                          0,
                          0)        
-
-        rate = self.borrowRate()
-        rateAtTarget = self.rateAtTarget()
-        supplyRate = rate * totalBorrowAssets / totalSupplyAssets if totalSupplyAssets else 0 # TODO: Don't work with fees
+        
+        borrowRate = borrowRate/POW_10_18
+        rateAtTarget = rateToTargetRate(borrowRate, utilization/POW_10_18)
+        supplyRate = borrowRate * totalBorrowAssets / totalSupplyAssets if totalSupplyAssets else 0 # TODO: Don't work with fees
         
         return MaketData(totalSupplyAssets/self.loanTokenFactor, 
                          totalSupplyShares/POW_10_18, 
                          totalBorrowAssets/self.loanTokenFactor, 
                          totalBorrowShares/POW_10_18, 
-                         lastUpdate, 
                          fee, 
                          totalBorrowAssets/totalSupplyAssets if totalSupplyAssets else 0,
                          supplyRate,
-                         rate,
+                         borrowRate,
                          rateAtTarget)        
 
 
     def position(self, address):
-        ( totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee) = self.blue.marketData(self.id)
-        ( supplyShares , borrowShares , collateral) = self.blue.position(self.id, self.web3.to_checksum_address(address))
+        (suppliedShares, suppliedAssets, borrowedShares, borrowedAssets, collateral, collateralValue, ltv, healthRatio) = self.blue.reader.functions.getPosition(self.id, self.web3.to_checksum_address(address)).call()
+
         if  self.isIdleMarket():
             return Position(address, 
-                        supplyShares/POW_10_18, 
-                        (supplyShares/POW_10_18) * (totalSupplyAssets/self.loanTokenFactor)/ (totalSupplyShares/POW_10_18)  if totalSupplyShares else 0,
-                        0, 0, 0, 0, 0)
-        price = self.collateralPrice()
-        borrowAssets = borrowShares * (totalBorrowAssets/self.loanTokenFactor) / totalBorrowShares if totalBorrowShares else 0
-        collateralValue = collateral/self.collateralTokenFactor*price
+                        suppliedShares/POW_10_18, 
+                        suppliedAssets/self.loanTokenFactor,
+                        0, 0, 0, 0, 0, 0, 0)
+        
         return Position(address, 
-                        supplyShares/POW_10_18, 
-                        (supplyShares/POW_10_18) * (totalSupplyAssets/self.loanTokenFactor)/ (totalSupplyShares/POW_10_18)  if totalSupplyShares else 0,
-                        borrowShares/POW_10_18, 
-                        borrowAssets, 
+                        suppliedShares/POW_10_18, 
+                        suppliedAssets/self.loanTokenFactor,
+                        borrowedShares/POW_10_18, 
+                        borrowedAssets/self.loanTokenFactor, 
                         collateral/self.collateralTokenFactor,
-                        collateralValue,
-                        borrowAssets / collateralValue if collateralValue else 0
+                        collateralValue/self.loanTokenFactor,
+                        (collateralValue/self.loanTokenFactor)/(collateral/self.collateralTokenFactor) if collateral > 0 else 0,
+                        ltv/POW_10_18,
+                        healthRatio/POW_10_18
                         )
     
     def collateralPrice(self):

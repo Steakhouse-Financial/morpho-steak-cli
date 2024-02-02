@@ -1,6 +1,6 @@
 from web3 import Web3
 from web3 import Account
-
+import json
 from dotenv import load_dotenv
 import morpho
 from morpho import MorphoBlue, MetaMorpho
@@ -13,6 +13,7 @@ from texttable import Texttable
 import datetime
 from web3.gas_strategies.time_based import medium_gas_price_strategy
 from web3.gas_strategies.rpc import rpc_gas_price_strategy
+import oneinch
 
 load_dotenv()
 
@@ -24,6 +25,25 @@ def log(message, addTimestamp = True):
                 file.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S - "))
             file.write(f"{message}\n")
 
+
+def executeTransaction(web3, fnct):
+    privateKey = os.environ.get('PRIVATE_KEY')
+    maxGas = int(os.environ.get('MAX_GWEI'))
+    account = Account.from_key(privateKey)
+    account_address = account.address
+    #print(account_address)
+    tx = fnct.build_transaction({
+                            "from": account_address
+                })
+    nonce = web3.eth.get_transaction_count(account.address)
+    tx['nonce'] = nonce
+    signed_transaction = account.sign_transaction(tx)
+    log(f"gas prices => {web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+    if web3.eth.generate_gas_price() < Web3.to_wei(maxGas, 'gwei'):
+        tx_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+        log(f"Executed with hash => {tx_hash.hex()}")
+    else:
+        log(f"gas price too high => {web3.eth.generate_gas_price()/pow(10,9):,.0f}")
 
 class MorphoCli(cmd.Cmd):
     intro = 'Welcome to Steakhouse CLI.   Type help or ? to list commands.\n'
@@ -47,6 +67,9 @@ class MorphoCli(cmd.Cmd):
         if os.environ.get('META_MORPHO') != '':
             self.vault = MetaMorpho(self.web3, os.environ.get('META_MORPHO'))
             #print("Vault {0} loaded".format(self.vault.name))
+
+        if os.environ.get('MORPHO_BLUE_MARKETS') != '':
+            self.blue = MorphoBlue(self.web3, os.environ.get('MORPHO_BLUE'), os.environ.get('MORPHO_BLUE_MARKETS'))
     
     
     def do_summary(self, line):
@@ -90,6 +113,15 @@ class MorphoCli(cmd.Cmd):
                 print(f"{p.ltv*100:.2f}% {p.address} ")
         print()
 
+    def do_market_borrowers(self, address):
+        if self.blue is None:
+            print("First add a some market to get a blue object")
+            return
+        for m in self.blue.markets:
+            print(f"{m.name()}")
+            for p in m.borrowers():
+                print(f"{p.ltv*100:.22f}% {p.address} ")
+        print()
 
     def do_competition(self, args):
         if self.vault is None:
@@ -120,6 +152,69 @@ class MorphoCli(cmd.Cmd):
 
         print(table.draw())
         print()
+
+
+
+    def do_wind(self, args):
+        if self.vault is None:
+            print("First add a MetaMorpho vault")
+            return
+        
+        if self.vault.assetSymbol != "USDC":
+            print("Only work for steakUSDC")
+            return
+        
+
+    def do_grant_admin(self, args):
+        (contract, to) = args.split()
+        # Not the best ABI but works
+        abi = json.load(open('abis/MorphoLiquidator.json'))
+        liquidator = self.web3.eth.contract(address=Web3.to_checksum_address(contract), abi=abi)
+        fnct = liquidator.functions.grantRole(liquidator.functions.DEFAULT_ADMIN_ROLE().call(), Web3.to_checksum_address(to));
+        executeTransaction(self.web3, fnct)
+
+    def do_grant_operator(self, args):
+        (contract, to) = args.split()
+        # Not the best ABI but works
+        abi = json.load(open('abis/MorphoLiquidator.json'))
+        liquidator = self.web3.eth.contract(address=Web3.to_checksum_address(contract), abi=abi)
+        fnct = liquidator.functions.grantRole(liquidator.functions.OPERATOR_ROLE().call(), Web3.to_checksum_address(to));
+        executeTransaction(self.web3, fnct)
+
+    def do_liquidate(self, args):
+        (id, borrower) = args.split()
+        blue = MorphoBlue(self.web3, os.environ.get('MORPHO_BLUE'), id)
+        market = blue.getMarketById(id)
+        marketParams = blue.marketParams(id)
+        pos = market.position(borrower)
+        if pos.ltv < market.lltv:
+            print(f"LTV of {borrower} is {pos.ltv*100:.2f}%, limit LTV is {market.lltv*100:.2f}%")
+        
+        print(f"LTV of {borrower} is {pos.ltv*100:.2f}% above limit LTV {market.lltv*100:.2f}%, start liquidation")
+
+
+        print(f"Borrowed shares to be repaided {pos.borrowShares*pow(10,18):,.18f} corresponding to {pos.borrowAssets:,.8f} assets")
+        # Compute seizable collateral
+
+        incentiveFactor = min(1.15, 1/(1-0.3*(1-market.lltv)))
+        print(f"Incentive factor {incentiveFactor:,.4f}")
+        
+        theoreticalSeizableCollateral = incentiveFactor * pos.borrowAssets * pos.collateralPrice;
+
+        # In this case, we do not have to cover all the debt to retrieve the collateral. This is the case if there is a bad debt.
+        if theoreticalSeizableCollateral > pos.collateral:
+            seizedCollateral = pos.collateral 
+        else:
+            seizedCollateral = theoreticalSeizableCollateral;
+        
+
+        print(f"Will seize {seizedCollateral:,.4f} of collateral corresponding to {seizedCollateral * pos.collateralPrice:,.4f} in value")
+
+        abi = json.load(open('abis/MorphoLiquidator.json'))
+        liquidator = self.web3.eth.contract(address=Web3.to_checksum_address(os.environ.get('LIQUIDATOR_STEAKHOUSE')), abi=abi)
+        fnct = liquidator.functions.liquidate(marketParams, Web3.to_checksum_address(borrower), pos.borrowShares);
+        executeTransaction(self.web3, fnct)
+
 
 
     def do_reallocation(self, args):
@@ -186,7 +281,7 @@ class MorphoCli(cmd.Cmd):
                 if to_remove > 0:
                     actions.append((target, -to_remove, m.marketParams()))
 
-                
+        to_add = 0
         # Second pass to find where more liquidity is ndeed
         for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
@@ -224,7 +319,7 @@ class MorphoCli(cmd.Cmd):
 
 
         # If we don't have enough liquidity scale down expectations
-        if availableLiquidity < neededLiquidity:
+        if neededLiquidity > 0 and availableLiquidity < neededLiquidity:
             ratio = availableLiquidity / neededLiquidity
             log(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}). Reduce needs to {ratio*100.0:.2f}%")
 
@@ -234,8 +329,8 @@ class MorphoCli(cmd.Cmd):
                 if action[1] > 0 and action[1] > 0:
                     actions[i] = (action[0]-(1-ratio)*action[1], ratio*action[1], action[2])
 
-        if len(actions) == 0 or max(availableLiquidity, neededLiquidity) < float(os.environ.get('REBALANCING_THRESHOLD')):
-            log(f"Nothing to do {max(availableLiquidity, neededLiquidity):,.0f} < {float(os.environ.get('REBALANCING_THRESHOLD')):,.0f}")
+        if len(actions) == 0 or max(-availableLiquidity, neededLiquidity) < float(os.environ.get('REBALANCING_THRESHOLD')):
+            log(f"Nothing to do {max(-availableLiquidity, neededLiquidity):,.0f} < {float(os.environ.get('REBALANCING_THRESHOLD')):,.0f}")
             print()
             return
 
@@ -288,6 +383,26 @@ class MorphoCli(cmd.Cmd):
 
 
         print()
+
+    def _execute(fn):        
+            privateKey = os.environ.get('PRIVATE_KEY')
+            maxGas = int(os.environ.get('MAX_GWEI'))
+            account = Account.from_key(privateKey)
+            account_address = account.address
+            #print(account_address)
+            tx = fn.build_transaction({
+                    "from": account_address
+                })
+            nonce = self.web3.eth.get_transaction_count(account.address)
+            tx['nonce'] = nonce
+            signed_transaction = account.sign_transaction(tx)
+            log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+            if self.web3.eth.generate_gas_price() < Web3.to_wei(maxGas, 'gwei'):
+                tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+                log(f"Executed with hash => {tx_hash.hex()}")
+            else:
+                log(f"gas price too high => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+
 
 
     def do_full(self, args):

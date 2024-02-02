@@ -2,6 +2,7 @@
 import json
 from .morphomarket import MorphoMarket
 from dataclasses import dataclass
+import os
 
 
 @dataclass
@@ -25,13 +26,18 @@ class MorphoBlue:
         self.abi = json.load(open('abis/morphoblue.json'))
         self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
+        
+        readerAbi = json.load(open('abis/MorphoReader.json'))
+        readerAddress = web3.to_checksum_address(os.environ.get('MORPHO_READER'))
+        self.reader = web3.eth.contract(address=readerAddress, abi=readerAbi)
+
         self.markets = []
         for id in markets.split(','):
             if(not id == ''):
                 self.addMarket(id.lower().strip())
     
     def marketData(self, id):
-        return self.contract.functions.market(id).call()
+        return self.reader.functions.getMarketData(id).call()
 
     def marketParams(self, id):
         data = self.contract.functions.idToMarketParams(id).call()
@@ -57,7 +63,7 @@ class MorphoBlue:
                 return m
 
     def position(self, id, address):
-        return self.contract.functions.position(id, address).call()
+        return self.reader.functions.getPosition(id, address).call()
         
     
     def borrowers(self, id):
