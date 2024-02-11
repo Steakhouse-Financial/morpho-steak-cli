@@ -181,8 +181,8 @@ class MorphoCli(cmd.Cmd):
         fnct = liquidator.functions.grantRole(liquidator.functions.OPERATOR_ROLE().call(), Web3.to_checksum_address(to));
         executeTransaction(self.web3, fnct)
 
-    def do_liquidate(self, args):
-        (id, borrower) = args.split()
+
+    def liquidate(self, id, borrower):
         blue = MorphoBlue(self.web3, os.environ.get('MORPHO_BLUE'), id)
         market = blue.getMarketById(id)
         marketParams = blue.marketParams(id)
@@ -193,7 +193,7 @@ class MorphoCli(cmd.Cmd):
         print(f"LTV of {borrower} is {pos.ltv*100:.2f}% above limit LTV {market.lltv*100:.2f}%, start liquidation")
 
 
-        print(f"Borrowed shares to be repaided {pos.borrowShares*pow(10,18):,.18f} corresponding to {pos.borrowAssets:,.8f} assets")
+        print(f"Borrowed shares to be repaided {pos.borrowShares:,.18f} corresponding to {pos.borrowAssets:,.8f} assets")
         # Compute seizable collateral
 
         incentiveFactor = min(1.15, 1/(1-0.3*(1-market.lltv)))
@@ -212,8 +212,28 @@ class MorphoCli(cmd.Cmd):
 
         abi = json.load(open('abis/MorphoLiquidator.json'))
         liquidator = self.web3.eth.contract(address=Web3.to_checksum_address(os.environ.get('LIQUIDATOR_STEAKHOUSE')), abi=abi)
-        fnct = liquidator.functions.liquidate(marketParams, Web3.to_checksum_address(borrower), pos.borrowShares);
+        fnct = liquidator.functions.liquidate(marketParams.toTuple(), Web3.to_checksum_address(borrower), 0, False);
         executeTransaction(self.web3, fnct)
+
+
+
+    def do_liquidate(self, args):
+        (id, borrower) = args.split()
+        self.liquidate(id, borrower)
+        print()
+
+
+    def do_liquidate_markets(self, args):
+        if self.blue is None:
+            print("First add a some market to get a blue object")
+            return
+        for m in self.blue.markets:
+            print(f"{m.name()}")
+            for p in m.borrowers():
+                if p.healthRatio < 0.99:
+                    print(f"{p.address} health ratio is {p.healthRatio *100:.1f}%")
+                    self.liquidate(m.id, p.address)
+        print()
 
 
 
