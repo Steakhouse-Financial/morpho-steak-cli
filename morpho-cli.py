@@ -72,6 +72,14 @@ class MorphoCli(cmd.Cmd):
             self.blue = MorphoBlue(self.web3, os.environ.get('MORPHO_BLUE'), os.environ.get('MORPHO_BLUE_MARKETS'))
     
     
+    def do_chmeta(self, args):
+        if args[:2] == "0x":
+            self.vault = MetaMorpho(self.web3, args)
+        else:
+            self.vault = MetaMorpho(self.web3, os.environ.get(args.upper()))
+
+
+
     def do_summary(self, line):
         if self.vault is None:
             print("First add a MetaMorpho vault")
@@ -216,10 +224,62 @@ class MorphoCli(cmd.Cmd):
         executeTransaction(self.web3, fnct)
 
 
+    def liquidate_1inch(self, id, borrower):
+        blue = MorphoBlue(self.web3, os.environ.get('MORPHO_BLUE'), id)
+        market = blue.getMarketById(id)
+        marketParams = blue.marketParams(id)
+        pos = market.position(borrower)
+        if pos.ltv < market.lltv:
+            print(f"LTV of {borrower} is {pos.ltv*100:.2f}%, limit LTV is {market.lltv*100:.2f}%")
+        
+        print(f"LTV of {borrower} is {pos.ltv*100:.2f}% above limit LTV {market.lltv*100:.2f}%, start liquidation")
+
+
+        print(f"Borrowed shares to be repaided {pos.borrowShares:,.18f} corresponding to {pos.borrowAssets:,.8f} assets")
+        # Compute seizable collateral
+
+        incentiveFactor = min(1.15, 1/(1-0.3*(1-market.lltv)))
+        print(f"Incentive factor {incentiveFactor:,.4f}")
+        
+        theoreticalSeizableCollateral = incentiveFactor * pos.borrowAssets * pos.collateralPrice;
+
+        # In this case, we do not have to cover all the debt to retrieve the collateral. This is the case if there is a bad debt.
+        if theoreticalSeizableCollateral > pos.collateral:
+            seizedCollateral = pos.collateral 
+        else:
+            seizedCollateral = theoreticalSeizableCollateral;
+        
+
+        print(f"Will seize {seizedCollateral:,.4f} of collateral corresponding to {seizedCollateral * pos.collateralPrice:,.4f} in value")
+
+        abi = json.load(open('abis/liquidator.json'))
+        amount = pos.collateral * market.collateralTokenFactor
+        print(f"exact amount of collateral {amount}")
+        oneinch_result = oneinch.swapData(marketParams.collateralToken, marketParams.loanToken, amount, os.environ.get('LIQUIDATOR_1INCH'))
+        print(oneinch_result)
+        liquidator = self.web3.eth.contract(address=Web3.to_checksum_address(os.environ.get('LIQUIDATOR_1INCH')), abi=abi)
+        debug = {
+            "tuple":  marketParams.toTuple(),
+            "who":  Web3.to_checksum_address(borrower),
+            "asset": int(pos.borrowShares * pow(10,18)),
+            "collateral":  int(amount),
+            "data": oneinch_result.json()["tx"]["data"][2:]
+        }
+        print(debug)
+        fnct = liquidator.functions.liquidate(marketParams.toTuple(), Web3.to_checksum_address(borrower), 0, int(pos.borrowShares * pow(10,18)),
+                                              bytes.fromhex(oneinch_result.json()["tx"]["data"][2:]));
+        executeTransaction(self.web3, fnct)
+
 
     def do_liquidate(self, args):
         (id, borrower) = args.split()
         self.liquidate(id, borrower)
+        print()
+
+
+    def do_liquidate_1inch(self, args):
+        (id, borrower) = args.split()
+        self.liquidate_1inch(id, borrower)
         print()
 
 
@@ -236,12 +296,165 @@ class MorphoCli(cmd.Cmd):
         print()
 
 
+    def reallocation_pyusd(self, execute = False):
+        if self.vault.symbol != "steakPYUSD":
+            print("Work only for steakPYUSD for now")
+            return
+        
+        targetBaseRate = 0.047
 
-    def do_reallocation(self, args):
-        if self.vault is None:
-            print("First add a MetaMorpho vault")
+        minRate = dict()
+        minRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        minRate["WBTC"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        minRate["wbIB01"] = targetBaseRate + 0.001
+        maxRate = dict()
+        maxRate["wstETH"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        minRate["WBTC"] = targetBaseRate #max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
+        maxRate["wbIB01"] = targetBaseRate + 0.001
+        OVERFLOW_AMOUNT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
+        MAX_UTILIZATION_TARGET = 0.995
+
+        overflowMarket = self.vault.getIdleMarket()
+        overflowMarketData = overflowMarket.marketData()
+        availableLiquidity = 0
+        neededLiquidity = 0
+        actions = []
+
+        if overflowMarket in minRate:
+            print(f"You can't have a min rate for the overflow market {overflowMarket}")
+        
+
+        # Ensure we empty the idle market
+        idleMarket = self.vault.getIdleMarket()
+        idleMarketData = idleMarket.marketData()
+        idlePosition = idleMarket.position(self.vault.address)
+        if idleMarketData.totalSupplyAssets > 0:
+            log(f"Idle: Need to remove {idleMarketData.totalSupplyAssets:,.0f} ({idleMarketData.totalSupplyAssets:,.0f} -> {0:,.0f})")
+            availableLiquidity += idlePosition.supplyAssets
+            actions = [(0, -idleMarketData.totalSupplyAssets, idleMarket.marketParams())] + actions # 0 instead of target just for safety
+
+
+        # First pass to check for excess liquidity markets
+        for m in self.vault.getBorrowMarkets():
+            rate = m.borrowRate()
+            data = m.marketData()
+            position = m.position(self.vault.address)
+
+            if ((m.collateralTokenSymbol in minRate)
+                    and rate < minRate[m.collateralTokenSymbol]):
+                target_rate = minRate[m.collateralTokenSymbol]
+                new_util = min(MAX_UTILIZATION_TARGET, morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate))
+                target = data.totalBorrowAssets / new_util
+                to_remove = position.supplyAssets- target
+                availableLiquidity += to_remove
+                print(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to remove {to_remove:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
+                if to_remove > 0:
+                    actions.append((target, -to_remove, m.marketParams()))
+
+        to_add = 0
+        # Second pass to find where more liquidity is ndeed
+        for m in self.vault.getBorrowMarkets():
+            rate = m.borrowRate()
+            data = m.marketData()
+            position = m.position(self.vault.address)
+
+            if ((m.collateralTokenSymbol in minRate)
+                    and rate > maxRate[m.collateralTokenSymbol]):
+                target_rate = maxRate[m.collateralTokenSymbol]
+                new_util = morpho.utils.utilizationForRate(data.borrowRateAtTarget, target_rate)
+                if new_util > 0:
+                    target = data.totalBorrowAssets / new_util
+                else:
+                    target = data.totalBorrowAssets + 100000 * pow(10, self.vault.assetDecimals) ## Min allocation if no borrow
+
+                to_add = target - data.totalSupplyAssets
+                neededLiquidity += to_add
+                log(f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})")
+                if to_add > 0:
+                    actions.append((target, to_add, m.marketParams()))
+
+        # If there is not enough liquidity from active market, add the idle market first
+        print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
+        if availableLiquidity < neededLiquidity or overflowMarket.borrowRate() > targetBaseRate + 0.01:
+            # Unwind the sDAI bot
+            sDAIBotUnwinded = True
+            
+            # take all liquidity from sDAI market
+            overflowLiquidity = overflowMarketData.totalSupplyAssets - overflowMarketData.totalBorrowAssets
+            if overflowLiquidity > 0:
+                log(f"{m.collateralTokenSymbol}: Take all liquidity {availableLiquidity:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {overflowMarketData.totalBorrowAssets:,.0f})")
+                if to_add > 0:
+                        actions.append((overflowMarketData.totalBorrowAssets, -overflowLiquidity, m.marketParams()))
+
+
+
+        # If we don't have enough liquidity scale down expectations
+        if neededLiquidity > 0 and availableLiquidity < neededLiquidity:
+            ratio = availableLiquidity / neededLiquidity
+            log(f"Not enough available liquidity ({availableLiquidity:,.0f} vs {neededLiquidity:,.0f}). Reduce needs to {ratio*100.0:.2f}%")
+
+            neededLiquidity = availableLiquidity
+
+            for i, action in enumerate(actions):
+                if action[1] > 0 and action[1] > 0:
+                    actions[i] = (action[0]-(1-ratio)*action[1], ratio*action[1], action[2])
+
+        if len(actions) == 0 or max(availableLiquidity, neededLiquidity) < float(os.environ.get('REBALANCING_THRESHOLD')):
+            log(f"Nothing to do {max(availableLiquidity, neededLiquidity):,.0f} < {float(os.environ.get('REBALANCING_THRESHOLD')):,.0f}")
+            print()
             return
 
+        # Tbd
+        #table = Texttable()
+        #table.header(["Market", "Delta", "Util", "Obs"])
+        #table.set_cols_align(['l', 'r', 'r', 'r'])
+        #table.set_deco(Texttable.HEADER )
+        # print(actions)
+
+        # print(table.draw())
+
+        print()
+
+        script = "["
+
+        for i, action in enumerate(actions):
+            if i != 0:
+                script = script + ", "
+            script = script + f"[{action[2].toGnosisSafeString()}, \"{math.floor(action[0]*pow(10,self.vault.assetDecimals)):.0f}\"]"
+
+        script = script + f", [{overflowMarket.params.toGnosisSafeString()}, \"{OVERFLOW_AMOUNT}\"]]"
+
+        print(script)
+
+        if execute:
+            privateKey = os.environ.get('PRIVATE_KEY')
+            maxGas = int(os.environ.get('MAX_GWEI'))
+            script = []            
+            for i, action in enumerate(actions):
+                #script = script + [((action[2].loanToken, action[2].collateralToken, action[2].oracle, action[2].irm, action[2].lltv), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
+                script = script + [(action[2].toTuple(), math.floor(action[0]*pow(10,self.vault.assetDecimals)))]
+            script = script + [(overflowMarket.params.toTuple(), OVERFLOW_AMOUNT)]
+            #print(script)
+            account = Account.from_key(privateKey)
+            account_address = account.address
+            #print(account_address)
+            tx = self.vault.contract.functions.reallocate(script).build_transaction({
+                    "from": account_address
+                })
+            nonce = self.web3.eth.get_transaction_count(account.address)
+            tx['nonce'] = nonce
+            signed_transaction = account.sign_transaction(tx)
+            log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+            if self.web3.eth.generate_gas_price() < Web3.to_wei(maxGas, 'gwei'):
+                tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+                log(f"Executed with hash => {tx_hash.hex()}")
+            else:
+                log(f"gas price too high => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+
+
+        print()
+
+    def reallocation_usdc(self, execute = False):
         if self.vault.symbol != "steakUSDC":
             print("Work only for steakUSDC for now")
             return
@@ -376,7 +589,7 @@ class MorphoCli(cmd.Cmd):
 
         print(script)
 
-        if args == "execute":
+        if execute:
             privateKey = os.environ.get('PRIVATE_KEY')
             maxGas = int(os.environ.get('MAX_GWEI'))
             script = []            
@@ -404,24 +617,15 @@ class MorphoCli(cmd.Cmd):
 
         print()
 
-    def _execute(fn):        
-            privateKey = os.environ.get('PRIVATE_KEY')
-            maxGas = int(os.environ.get('MAX_GWEI'))
-            account = Account.from_key(privateKey)
-            account_address = account.address
-            #print(account_address)
-            tx = fn.build_transaction({
-                    "from": account_address
-                })
-            nonce = self.web3.eth.get_transaction_count(account.address)
-            tx['nonce'] = nonce
-            signed_transaction = account.sign_transaction(tx)
-            log(f"gas prices => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
-            if self.web3.eth.generate_gas_price() < Web3.to_wei(maxGas, 'gwei'):
-                tx_hash = self.web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-                log(f"Executed with hash => {tx_hash.hex()}")
-            else:
-                log(f"gas price too high => {self.web3.eth.generate_gas_price()/pow(10,9):,.0f}")
+
+    def do_reallocation(self, args):
+        if self.vault is None:
+            print("First add a MetaMorpho vault")
+        elif self.vault.symbol == "steakUSDC":
+            self.reallocation_usdc(args == "execute")
+        elif self.vault.symbol == "steakPYUSD":
+            self.reallocation_pyusd(args == "execute")
+
 
 
 

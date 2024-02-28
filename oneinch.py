@@ -7,7 +7,9 @@ import os
 
 
 
+from dotenv import load_dotenv
 
+# load_dotenv()
 #response = requests.get('https://api.1inch.dev/swap/v5.2/1/tokens', headers= headers)
 #print(response.content)
 
@@ -25,7 +27,7 @@ def swapData(fromToken, toToken, amount, fromWallet):
     params = {
         "src":fromToken,
         "dst": toToken,
-        "amount": str(amount),
+        "amount": f"{amount:.0f}",
         "from": fromWallet,
         "slippage": 1,
         "disableEstimate": "true",
@@ -33,8 +35,10 @@ def swapData(fromToken, toToken, amount, fromWallet):
         "includeTokensInfo": "true",
         "compatibility": "true",
     }
+    print(params)
     response = requests.get(apiUrl, headers=headers, params=params)
 
     print(response.json())
     return response
 
+# swapData("0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0","0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 10*pow(10, 18), "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")
