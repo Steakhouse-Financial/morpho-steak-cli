@@ -56,17 +56,16 @@ class MorphoCli(cmd.Cmd):
         super().__init__()
 
         self.start_ts = time.time()
-        print(
-            "Starting Morpho CLI at: ",
-            datetime.fromtimestamp(self.start_ts).strftime("%Y-%m-%d %H:%M:%S"),
-        )
 
         # Connect to web3
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get("WEB3_HTTP_PROVIDER")))
         if not self.web3.is_connected():
             raise Exception("Issue to connect to Web3")
+        self.web3_connection_ts = time.time()
 
         self.web3.eth.set_gas_price_strategy(rpc_gas_price_strategy)
+
+        self.web3_set_gas_price_strategy_ts = time.time()
 
         # init morpho
         # morpho = MorphoBlue(web3, os.environ.get('MORPHO_BLUE'), os.environ.get('MORPHO_BLUE_MARKETS'))
@@ -75,12 +74,32 @@ class MorphoCli(cmd.Cmd):
             self.vault = MetaMorpho(self.web3, os.environ.get("META_MORPHO"))
             # print("Vault {0} loaded".format(self.vault.name))
 
+        self.init_morpho_ts = time.time()
+
         if os.environ.get("MORPHO_BLUE_MARKETS") != "":
             self.blue = MorphoBlue(
                 self.web3,
                 os.environ.get("MORPHO_BLUE"),
                 os.environ.get("MORPHO_BLUE_MARKETS"),
             )
+        self.init_blue_ts = time.time()
+
+        self.end_ts = time.time()
+        print(
+            "Intiated Morpho CLI at: ",
+            datetime.fromtimestamp(self.end_ts).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        print("Web3 Connection Time (s): ", self.web3_connection_ts - self.start_ts)
+        print(
+            "Web3 Set Gas Price Strategy Time (s): ",
+            self.web3_set_gas_price_strategy_ts - self.web3_connection_ts,
+        )
+        print(
+            "Init Morpho Time (s): ",
+            self.init_morpho_ts - self.web3_set_gas_price_strategy_ts,
+        )
+        print("Init Morpho Blue Time (s): ", self.init_blue_ts - self.init_morpho_ts)
+        print("Total Time (s): ", self.end_ts - self.start_ts)
 
     def do_chmeta(self, args):
         if args[:2] == "0x":
@@ -593,7 +612,7 @@ class MorphoCli(cmd.Cmd):
 
     def reallocation_usdc(self, execute=False):
         if self.vault.symbol != "steakUSDC":
-            print("Work only for steakUSDC for now")
+            print("Works only for steakUSDC for now")
             return
 
         sDAIBotUnwinded = False
