@@ -1,3 +1,4 @@
+import time
 from web3 import Web3
 from web3 import Account
 import json
@@ -10,10 +11,10 @@ import cmd
 import math
 import competition
 from texttable import Texttable
-import datetime
 from web3.gas_strategies.time_based import medium_gas_price_strategy
 from web3.gas_strategies.rpc import rpc_gas_price_strategy
 import oneinch
+from datetime import datetime
 
 load_dotenv()
 
@@ -52,7 +53,14 @@ class MorphoCli(cmd.Cmd):
     web3 = None
 
     def __init__(self):
-        cmd.Cmd.__init__(self)
+        super().__init__()
+
+        self.start_ts = time.time()
+        print(
+            "Starting Morpho CLI at: ",
+            datetime.fromtimestamp(self.start_ts).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
         # Connect to web3
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get("WEB3_HTTP_PROVIDER")))
         if not self.web3.is_connected():
@@ -818,7 +826,15 @@ class MorphoCli(cmd.Cmd):
 
 
 if __name__ == "__main__":
+
+    morpho_cli_start = time.time()
+    print("Starting Morpho CLI: ", datetime.fromtimestamp(morpho_cli_start))
+
     if len(sys.argv) > 1:
         MorphoCli().onecmd(" ".join(sys.argv[1:]))
     else:
         MorphoCli().cmdloop()
+
+    morpho_cli_end = time.time()
+    print("Ending Morpho CLI: ", datetime.fromtimestamp(morpho_cli_end))
+    print("Total time: ", morpho_cli_end - morpho_cli_start)
