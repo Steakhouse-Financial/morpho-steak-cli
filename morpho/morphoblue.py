@@ -35,9 +35,8 @@ class MorphoBlue:
         markets = markets or ""
         count = 0
         for id in markets.split(","):
-            if not id == "" and count < 2:
+            if not id == "":
                 self.addMarket(id.lower().strip())
-                count += 1
 
     def marketData(self, id):
         return self.reader.functions.getMarketData(id).call()

@@ -57,7 +57,10 @@ class MorphoMarket:
                 address=web3.to_checksum_address(params.oracle),
                 abi=json.load(open("abis/oracle.json")),
             )
+        self.lastOracleUpdate = 0
+        self.lltv = self.params.lltv / POW_10_18
 
+        # Get some data from erc20
         self.collateralToken = params.collateralToken
         cached_details_collateral = get_token_details(self.collateralToken)
         if (
