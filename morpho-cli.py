@@ -55,7 +55,7 @@ class MorphoCli(cmd.Cmd):
     web3 = None
 
     def __init__(self):
-        super().__init__()
+        cmd.Cmd.__init__(self)
 
         self.start_ts = time.time()
 
