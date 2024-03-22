@@ -24,6 +24,7 @@ class MetaMorpho:
 
         cached_details_morpho = get_morpho_details(self.address)
 
+        # todo: ensure these details will not changes
         if not cached_details_morpho:
             # MORPHO() call
             morphoAddress = self.contract.functions.MORPHO().call()
@@ -49,8 +50,9 @@ class MetaMorpho:
             self.name = cached_details_morpho["name"]
             self.asset = cached_details_morpho["asset"]
 
-        cached_details = get_token_details(self.asset)
-        if not cached_details:
+        # todo: ensure these details will not changes
+        cached_details_tokens = get_token_details(self.asset)
+        if not cached_details_tokens:
             # Fetch the details because they're not in the cache
             self.assetContract = web3.eth.contract(
                 address=self.asset, abi=json.load(open("abis/erc20.json"))
@@ -69,8 +71,9 @@ class MetaMorpho:
             )
         else:
             # Use the cached details
-            self.assetDecimals = cached_details["decimals"]
-            self.assetSymbol = cached_details["symbol"]
+            self.assetDecimals = cached_details_tokens["decimals"]
+            self.assetSymbol = cached_details_tokens["symbol"]
+            self.assetFactor = cached_details_tokens["factor"]
 
         self.blue = MorphoBlue(web3, morphoAddress, "")
         self.initMarkets()
