@@ -72,6 +72,10 @@ def sparkRates(web3, token="0x6b175474e89094c44da98b954eedeac495271d0f", nbBlock
         )
         cnt = len(logs)
 
+    if cnt == 0:
+        print(f"Error: No logs found for {token}")
+        return (0, 0, 0)
+
     borrowRate = 0
     supplyRate = 0
 
