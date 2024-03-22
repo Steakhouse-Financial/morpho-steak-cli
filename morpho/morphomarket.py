@@ -119,6 +119,8 @@ class MorphoMarket:
             self.loanTokenSymbol = cached_details_loan["symbol"]
             self.loanTokenFactor = cached_details_loan["factor"]
 
+        # Cache elements
+
         self.lastRate = 0
         self.lastRateUpdate = 0
         self.lastMarketData = None
