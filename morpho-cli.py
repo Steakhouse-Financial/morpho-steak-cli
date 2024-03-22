@@ -57,8 +57,6 @@ class MorphoCli(cmd.Cmd):
     def __init__(self):
         cmd.Cmd.__init__(self)
 
-        self.start_ts = time.time()
-
         # Connect to web3
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get("WEB3_HTTP_PROVIDER")))
         if not self.web3.is_connected():
