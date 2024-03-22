@@ -22,4 +22,4 @@ token.json
 
 __pycache__
 .venv
-venv
+venv/
