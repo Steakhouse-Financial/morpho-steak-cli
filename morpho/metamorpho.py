@@ -1,9 +1,15 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import datetime
+import os
 import time
 
-from utils.cache import cache_token_details, get_token_details
+from utils.cache import (
+    cache_morpho_details,
+    cache_token_details,
+    get_morpho_details,
+    get_token_details,
+)
 
 from .morphomarket import MorphoMarket, Position
 from .morphoblue import MorphoBlue
@@ -11,55 +17,37 @@ from .morphoblue import MorphoBlue
 
 class MetaMorpho:
     def __init__(self, web3, address):
-        # Start of the initialization process
-        init_start_time = time.time()
-        # All the below are super fast
+
         self.abi = json.load(open("abis/metamorpho.json"))
         self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
-        print(f"Initialized MetaMorpho contract at {self.address}")
-        print(f"Contract = {self.contract}")
 
-        # MORPHO() call
-        morpho_call_start_time = time.time()
-        morphoAddress = self.contract.functions.MORPHO().call()
-        morpho_call_end_time = time.time()
-        print(
-            f"MORPHO() call took {morpho_call_end_time - morpho_call_start_time:.2f} seconds, morphoAddress: {morphoAddress}"
-        )
+        cached_details_morpho = get_morpho_details(self.address)
 
-        # symbol() call
-        symbol_call_start_time = time.time()
-        self.symbol = self.contract.functions.symbol().call()
-        symbol_call_end_time = time.time()
-        print(
-            f"symbol() call took {symbol_call_end_time - symbol_call_start_time:.2f} seconds, symbol = {self.symbol}"
-        )
+        if not cached_details_morpho:
+            # MORPHO() call
+            morphoAddress = self.contract.functions.MORPHO().call()
+            self.symbol = self.contract.functions.symbol().call()
+            self.name = self.contract.functions.name().call()
+            self.asset = self.contract.functions.asset().call()
 
-        # name() call
-        name_call_start_time = time.time()
-        self.name = self.contract.functions.name().call()
-        name_call_end_time = time.time()
-        print(
-            f"name() call took {name_call_end_time - name_call_start_time:.2f} seconds, name = {self.name}"
-        )
+            # Cache the details into the morpho cache json
+            cache_morpho_details(
+                self.address,
+                {
+                    "morphoAddress": morphoAddress,
+                    "symbol": self.symbol,
+                    "name": self.name,
+                    "asset": self.asset,
+                },
+            )
 
-        # asset() call
-        asset_call_start_time = time.time()
-        self.asset = self.contract.functions.asset().call()
-        asset_call_end_time = time.time()
-        print(
-            f"asset() call took {asset_call_end_time - asset_call_start_time:.2f} seconds, asset = {self.asset}"
-        )
-
-        # Final print statement for the entire initialization process
-        init_end_time = time.time()
-        print(f"MetaMorpho init took {init_end_time - init_start_time:.2f} seconds")
-        print(
-            f"Initialization completed at {datetime.datetime.fromtimestamp(init_end_time).strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
-        self.token_details_start = time.time()
+        else:
+            # Use the cached details
+            morphoAddress = cached_details_morpho["morphoAddress"]
+            self.symbol = cached_details_morpho["symbol"]
+            self.name = cached_details_morpho["name"]
+            self.asset = cached_details_morpho["asset"]
 
         cached_details = get_token_details(self.asset)
         if not cached_details:
@@ -84,28 +72,13 @@ class MetaMorpho:
             self.assetDecimals = cached_details["decimals"]
             self.assetSymbol = cached_details["symbol"]
 
-        self.token_details_end = time.time()
-        print(
-            f"MetaMorpho variable init took {self.token_details_end - self.token_details_start:.2f} seconds"
-        ),
-        self.morpho_blue_init_start = time.time()
         self.blue = MorphoBlue(web3, morphoAddress, "")
-        self.morpho_blue_init = time.time()
-        print(
-            f"MetaMorpho blue init took {self.morpho_blue_init - self.morpho_blue_init_start:.2f} seconds"
-        ),
         self.initMarkets()
-        self.morpho_init_markets = time.time()
-        print(
-            f"MetaMorpho init markets took {self.morpho_init_markets - self.morpho_blue_init:.2f} seconds"
-        ),
 
     def fetch_market_data(self, market):
-        start_time = datetime.datetime.now()
         position = market.position(self.address)
         marketData = market.marketData()
-        elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
-        return (market, position, marketData, elapsed_time)
+        return (market, position, marketData)
 
     def totalAssets(self):
         return self.contract.functions.totalAssets().call() / pow(
@@ -122,26 +95,19 @@ class MetaMorpho:
 
     def initMarkets(self):
         self.markets = []
-        self.nb_start_time = time.time()
         nb = self.contract.functions.withdrawQueueLength().call()
-        self.nb_end_time = time.time()
-        print(
-            f"MetaMorpho get nb took {self.nb_end_time - self.nb_start_time:.2f} seconds"
-        ),
-        print(f"MetaMorpho has {nb} markets")
 
         # use a thread executor to fetch all markets in parallel
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            # Submit all market fetch tasks
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
             future_to_index = {
                 executor.submit(self.fetch_market, i): i for i in range(nb)
             }
-            # As futures complete, add markets to the self.markets list
+            # as futures complete, add markets to the self.markets list
             for future in as_completed(future_to_index):
                 market = future.result()
                 self.markets.append(market)
-
-        print(f"Initialized {len(self.markets)} markets")
 
     def getMarketByCollateral(self, collateral):
         for m in self.markets:
@@ -160,16 +126,17 @@ class MetaMorpho:
 
     def summary(self):
         totalAssets = self.totalAssets()
-        start = datetime.datetime.now()
-        print(f"Starting at {start:%Y-%m-%d %H:%M:%S}")
+        now = datetime.datetime.now()
         print(
-            f"{self.symbol} - {self.name} - Assets: {totalAssets:,.2f} - {start:%H:%M:%S}"
+            f"{self.symbol} - {self.name} - Assets: {totalAssets:,.2f} - {now:%H:%M:%S}"
         )
         vaultRate = 0.0
         liquidity = 0.0
 
         # Get data in parallel
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
             futures = [
                 executor.submit(self.fetch_market_data, m)
                 for m in self.markets
@@ -177,7 +144,7 @@ class MetaMorpho:
             ]
             for future in as_completed(futures):
                 try:
-                    market, position, marketData, elapsed_time = future.result()
+                    market, position, marketData = future.result()
                     vaultRate += marketData.supplyRate * position.supplyAssets
                     share = (
                         position.supplyAssets / totalAssets * 100.0
@@ -193,9 +160,8 @@ class MetaMorpho:
                         marketData.totalSupplyAssets - marketData.totalBorrowAssets
                     )
                     print(
-                        f"{market.name()} - rates: {marketData.supplyRate*100.0:.2f}%/{marketData.borrowRate*100.0:.2f}% "
+                        f"{market.name()} - rates: {marketData.supplyRate*100.0:.2f}%/{marketData.borrowRate*100.0:.2f}%[{marketData.borrowRateAtTarget*100.0:.2f}%] "
                         f"exposure: {position.supplyAssets:,.0f} ({share:.1f}%), util: {marketData.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}% "
-                        f"Time taken: {elapsed_time:.2f} seconds"
                     )
                 except Exception as exc:
                     print(f"Market data fetch generated an exception: {exc}")
@@ -217,14 +183,13 @@ class MetaMorpho:
                 + f"exposure: {position.supplyAssets:,.0f} ({share:.1f}%), vault %: {metaRepresent:.1f}%"
             )
 
-        vaultRate = vaultRate / totalAssets
+        if totalAssets > 0:
+            vaultRate = vaultRate / totalAssets
+        else:
+            vaultRate = 0.0
         print(
             f"{self.symbol} rate {vaultRate*100.0:.2f}%, total liquidity {liquidity:,.0f}"
         )
-        end = datetime.datetime.now()
-        time_elapsed = end - start
-        print(f"Ending at {end:%Y-%m-%d %H:%M:%S}")
-        print(f"Time Elapsed: {time_elapsed}")
 
     def rate(self):
         totalAssets = self.totalAssets()

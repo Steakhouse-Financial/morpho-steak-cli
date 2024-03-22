@@ -32,10 +32,12 @@ class MorphoBlue:
         self.reader = web3.eth.contract(address=readerAddress, abi=readerAbi)
 
         self.markets = []
-        markets = markets or ""  # if markets is None, set it to ""
+        markets = markets or ""
+        count = 0
         for id in markets.split(","):
-            if not id == "":
+            if not id == "" and count < 2:
                 self.addMarket(id.lower().strip())
+                count += 1
 
     def marketData(self, id):
         return self.reader.functions.getMarketData(id).call()

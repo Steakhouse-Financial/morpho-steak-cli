@@ -15,6 +15,8 @@ from web3.gas_strategies.time_based import medium_gas_price_strategy
 from web3.gas_strategies.rpc import rpc_gas_price_strategy
 import oneinch
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 load_dotenv()
 
@@ -61,11 +63,8 @@ class MorphoCli(cmd.Cmd):
         self.web3 = Web3(Web3.HTTPProvider(os.environ.get("WEB3_HTTP_PROVIDER")))
         if not self.web3.is_connected():
             raise Exception("Issue to connect to Web3")
-        self.web3_connection_ts = time.time()
 
         self.web3.eth.set_gas_price_strategy(rpc_gas_price_strategy)
-
-        self.web3_set_gas_price_strategy_ts = time.time()
 
         # init morpho
         # morpho = MorphoBlue(web3, os.environ.get('MORPHO_BLUE'), os.environ.get('MORPHO_BLUE_MARKETS'))
@@ -74,34 +73,21 @@ class MorphoCli(cmd.Cmd):
             self.vault = MetaMorpho(self.web3, os.environ.get("META_MORPHO"))
             # print("Vault {0} loaded".format(self.vault.name))
 
-        self.init_morpho_ts = time.time()
-
         if os.environ.get("MORPHO_BLUE_MARKETS") != "":
             self.blue = MorphoBlue(
                 self.web3,
                 os.environ.get("MORPHO_BLUE"),
                 os.environ.get("MORPHO_BLUE_MARKETS"),
             )
-        self.init_blue_ts = time.time()
-
-        self.end_ts = time.time()
-        print(
-            "Intiated Morpho CLI at: ",
-            datetime.fromtimestamp(self.end_ts).strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        print("Web3 Connection Time (s): ", self.web3_connection_ts - self.start_ts)
-        print(
-            "Web3 Set Gas Price Strategy Time (s): ",
-            self.web3_set_gas_price_strategy_ts - self.web3_connection_ts,
-        )
-        print(
-            "Init Morpho Time (s): ",
-            self.init_morpho_ts - self.web3_set_gas_price_strategy_ts,
-        )
-        print("Init Morpho Blue Time (s): ", self.init_blue_ts - self.init_morpho_ts)
-        print("Total Time (s): ", self.end_ts - self.start_ts)
 
     def do_chmeta(self, args):
+        if not args:
+            args = input("Please provide an argument or enter 'q' to go back: ")
+            if args == "q":
+                return
+
+        print(args)
+
         if args[:2] == "0x":
             self.vault = MetaMorpho(self.web3, args)
         else:
@@ -115,51 +101,95 @@ class MorphoCli(cmd.Cmd):
         print()
 
     def do_set_vault(self, vault):
+        if not vault:
+            vault = input("Please provide a vault address or enter 'q' to go back: ")
+            if vault == "q":
+                return
         self.vault = MetaMorpho(self.web3, vault)
         self.vault.summary()
         print()
 
     def do_position(self, address):
+        if not address:
+            address = input("Please provide a vault address or enter 'q' to go back: ")
+            if address == "q":
+                return
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
-        for m in self.vault.getBorrowMarkets():
-            p = m.position(address)
-            print(
-                "{0}: supply: {1:,.0f} borrow: {2:,.0f} collateral: {3:,.0f} ltv: {4:.1f}%".format(
-                    m.name(),
-                    p.supplyAssets,
-                    p.borrowAssets,
-                    p.collateralValue,
-                    p.ltv * 100.0,
+
+        def fetch_position(market):
+            # Fetch the position for a given market
+            position = market.position(address)
+            return market, position
+
+        # Initialize ThreadPoolExecutor
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
+            # Submit tasks to executor
+            futures = [
+                executor.submit(fetch_position, m)
+                for m in self.vault.getBorrowMarkets()
+            ]
+
+            for future in as_completed(futures):
+                market, position = future.result()
+                print(
+                    "{0}: supply: {1:,.0f} borrow: {2:,.0f} collateral: {3:,.0f} ltv: {4:.1f}%".format(
+                        market.name(),
+                        position.supplyAssets,
+                        position.borrowAssets,
+                        position.collateralValue,
+                        position.ltv * 100.0,
+                    )
                 )
-            )
-        print()
 
     def do_prices(self, address):
+        # giving bad data in a number of ways
+
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
         for m in self.vault.getBorrowMarkets():
             p = m.collateralPrice()
-            print(
-                "{0}/{1} = {2:.2f}".format(
-                    m.collateralTokenSymbol, m.loanTokenSymbol, p
+            if p == "No Oracle Contract":
+                print(f"{m.name()} {p}")
+            else:
+                print(
+                    "{0}/{1} = {2:.2f}".format(
+                        m.collateralTokenSymbol, m.loanTokenSymbol, p
+                    )
                 )
-            )
         print()
 
     def do_borrowers(self, address):
+        def fetch_borrowers(market):
+            borrowers = []
+            for p in market.borrowers():
+                borrowers.append((f"{p.ltv*100:.2f}% {p.address}",))
+            return market.name(), borrowers
+
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
-        for m in self.vault.getBorrowMarkets():
-            print(f"{m.name()}")
-            for p in m.borrowers():
-                print(f"{p.ltv*100:.2f}% {p.address} ")
-        print()
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
+            futures = {
+                executor.submit(fetch_borrowers, m): m
+                for m in self.vault.getBorrowMarkets()
+            }
+
+            for future in as_completed(futures):
+                market_name, borrowers_info = future.result()
+                print(f"{market_name}")
+                for borrower_info in borrowers_info:
+                    print(borrower_info[0])
+                print()
 
     def do_market_borrowers(self, address):
+
         if self.blue is None:
             print("First add a some market to get a blue object")
             return
@@ -167,57 +197,67 @@ class MorphoCli(cmd.Cmd):
             print(f"{m.name()}")
             for p in m.borrowers():
                 print(f"{p.ltv*100:.22f}% {p.address} ")
-        print()
 
     def do_competition(self, args):
         if self.vault is None:
             print("First add a MetaMorpho vault")
             return
 
+        def fetch_rates(source, *args):
+            # This function is a wrapper to fetch rates based on the source
+            if source == "aaveV3":
+                return ("Aave v3",) + competition.aaveV3Rates(*args)
+            elif source == "aaveV3_1d":
+                return ("Aave v3 1d",) + competition.aaveV3Rates(*args)
+            elif source == "aaveV3_7d":
+                return ("Aave v3 7d",) + competition.aaveV3Rates(*args)
+            elif source == "spark":
+                return ("Spark DAI",) + competition.sparkRates(*args)
+
+        tasks = [
+            ("aaveV3", self.web3, self.vault.asset),
+            ("aaveV3_1d", self.web3, self.vault.asset, 7200),
+            ("aaveV3_7d", self.web3, self.vault.asset, 7 * 7200),
+            ("spark", self.web3),  # only web3 needed
+        ]
+
         table = Texttable()
         table.header(["Protocol", "Supply", "Borrow", "Obs"])
         table.set_cols_align(["l", "r", "r", "r"])
         table.set_deco(Texttable.HEADER)
 
-        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(
-            self.web3, self.vault.asset
-        )
-        table.add_row(
-            ["Aave v3", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt]
-        )
+        start = time.time()
+        with ThreadPoolExecutor(len(tasks)) as executor:
+            future_to_task = {
+                executor.submit(fetch_rates, *task): task[0] for task in tasks
+            }
 
-        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(
-            self.web3, self.vault.asset, 7200
-        )
-        table.add_row(
-            ["Aave v3 1d", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt]
-        )
-
-        (supplyRate, borrowRate, cnt) = competition.aaveV3Rates(
-            self.web3, self.vault.asset, 7 * 7200
-        )
-        table.add_row(
-            ["Aave v3 7d", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt]
-        )
-
-        (supplyRate, borrowRate, cnt) = competition.sparkRates(
-            self.web3
-        )  # Use DAI for Spark
-        table.add_row(
-            ["Spark DAI", f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt]
-        )
+            for future in as_completed(future_to_task):
+                protocol, supplyRate, borrowRate, cnt = future.result()
+                table.add_row(
+                    [protocol, f"{supplyRate*100:.2f}%", f"{borrowRate*100:.2f}%", cnt]
+                )
         table.add_row(["=========", "", "", ""])
 
-        for m in self.vault.getBorrowMarkets():
-            rate = m.borrowRate()
-            table.add_row(
-                [
-                    m.collateralTokenSymbol,
-                    f"{self.vault.rate()*100:.2f}%",
-                    f"{rate*100:.2f}%",
-                    "",
-                ]
-            )
+        def get_rate(market):
+            rate = market.borrowRate()
+            return market.collateralTokenSymbol, rate
+
+        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+            future_to_task = {
+                executor.submit(get_rate, m): m for m in self.vault.getBorrowMarkets()
+            }
+
+            for future in as_completed(future_to_task):
+                collateralTokenSymbol, rate = future.result()
+                table.add_row(
+                    [
+                        collateralTokenSymbol,
+                        f"{self.vault.rate()*100:.2f}%",
+                        f"{rate*100:.2f}%",
+                        "",
+                    ]
+                )
 
         print(table.draw())
         print()
@@ -410,7 +450,9 @@ class MorphoCli(cmd.Cmd):
         maxRate["wstETH"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         )
-        minRate["WBTC"] = (
+        # todo: Get the proper maxRate
+        # I am assuming this needs to be maxRate["WBTC"] vs. min since min rate is instantiated above
+        maxRate["WBTC"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         )
         maxRate["wbIB01"] = targetBaseRate + 0.001
@@ -465,13 +507,13 @@ class MorphoCli(cmd.Cmd):
                     actions.append((target, -to_remove, m.marketParams()))
 
         to_add = 0
-        # Second pass to find where more liquidity is ndeed
+        # Second pass to find where more liquidity is needed
         for m in self.vault.getBorrowMarkets():
             rate = m.borrowRate()
             data = m.marketData()
             position = m.position(self.vault.address)
 
-            if (m.collateralTokenSymbol in minRate) and rate > maxRate[
+            if (m.collateralTokenSymbol in maxRate) and rate > maxRate[
                 m.collateralTokenSymbol
             ]:
                 target_rate = maxRate[m.collateralTokenSymbol]
@@ -492,7 +534,6 @@ class MorphoCli(cmd.Cmd):
                 )
                 if to_add > 0:
                     actions.append((target, to_add, m.marketParams()))
-
         # If there is not enough liquidity from active market, add the idle market first
         print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
         if (
@@ -508,6 +549,8 @@ class MorphoCli(cmd.Cmd):
                 - overflowMarketData.totalBorrowAssets
             )
             if overflowLiquidity > 0:
+                # todo: check if this is the right market to take liquidity from (maybe this should be the idle market instead of the sDAI market)
+                m = self.vault.getMarketByCollateral("sDAI")
                 log(
                     f"{m.collateralTokenSymbol}: Take all liquidity {availableLiquidity:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {overflowMarketData.totalBorrowAssets:,.0f})"
                 )
@@ -617,18 +660,20 @@ class MorphoCli(cmd.Cmd):
 
         sDAIBotUnwinded = False
 
-        (a0, aRate, a1) = competition.aaveV3Rates(self.web3, self.vault.asset)
-
-        (a0, aRateDay, a1) = competition.aaveV3Rates(self.web3, self.vault.asset, 7200)
+        # don't seem necessary
+        # (a0, aRate, a1) = competition.aaveV3Rates(self.web3, self.vault.asset)
+        # (a0, aRateDay, a1) = competition.aaveV3Rates(self.web3, self.vault.asset, 7200)
 
         targetBaseRate = 0.047
 
         minRate = dict()
+        # todo: check for the minRate of WBTC and sDAI
         minRate["wstETH"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         )
         minRate["wbIB01"] = targetBaseRate + 0.001
         maxRate = dict()
+        # todo: check for the maxRate of WBTC and sDAI
         maxRate["wstETH"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         )
@@ -659,10 +704,11 @@ class MorphoCli(cmd.Cmd):
             ] + actions  # 0 instead of target just for safety
 
         # First pass to check for excess liquidity markets
-        for m in self.vault.getBorrowMarkets():
+
+        def excess_liquidity(m, minRate, vaultAddress):
             rate = m.borrowRate()
             data = m.marketData()
-            position = m.position(self.vault.address)
+            position = m.position(vaultAddress)
 
             if (m.collateralTokenSymbol in minRate) and rate < minRate[
                 m.collateralTokenSymbol
@@ -676,21 +722,46 @@ class MorphoCli(cmd.Cmd):
                 )
                 target = data.totalBorrowAssets / new_util
                 to_remove = position.supplyAssets - target
-                availableLiquidity += to_remove
+                availableLiquidity = to_remove
                 print(
                     f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to remove {to_remove:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})"
                 )
                 if to_remove > 0:
-                    actions.append((target, -to_remove, m.marketParams()))
+                    return (target, m.marketParams(), to_remove, availableLiquidity)
+                return None
+            else:
+                if m.collateralTokenSymbol not in minRate:
+                    print(f"{m.collateralTokenSymbol}: No min rate")
+                    return None
+                print(
+                    f"{m.collateralTokenSymbol}: rate: {rate} > minRate: {minRate[m.collateralTokenSymbol]}"
+                )
+                return None
 
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
+            futures = {
+                executor.submit(excess_liquidity, m, minRate, self.vault.address): m
+                for m in self.vault.getBorrowMarkets()
+            }
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    target, marketParams, to_remove, liquidity = future.result()
+                    actions.append((target, -to_remove, marketParams))
+                    availableLiquidity += liquidity
+
+        print()
         to_add = 0
         # Second pass to find where more liquidity is ndeed
-        for m in self.vault.getBorrowMarkets():
+
+        def liquidity_needed(m, maxRate, assetDecimals):
             rate = m.borrowRate()
             data = m.marketData()
-            position = m.position(self.vault.address)
 
-            if (m.collateralTokenSymbol in minRate) and rate > maxRate[
+            if (m.collateralTokenSymbol in maxRate) and rate > maxRate[
                 m.collateralTokenSymbol
             ]:
                 target_rate = maxRate[m.collateralTokenSymbol]
@@ -701,18 +772,38 @@ class MorphoCli(cmd.Cmd):
                     target = data.totalBorrowAssets / new_util
                 else:
                     target = data.totalBorrowAssets + 100000 * pow(
-                        10, self.vault.assetDecimals
+                        10, assetDecimals
                     )  ## Min allocation if no borrow
 
                 to_add = target - data.totalSupplyAssets
-                neededLiquidity += to_add
                 log(
                     f"{m.collateralTokenSymbol}: Need {new_util*100:.1f}% utilization to get {target_rate*100:.2f}% borrow rate. Need to add {to_add:,.0f} ({data.totalSupplyAssets:,.0f} -> {target:,.0f})"
                 )
                 if to_add > 0:
-                    actions.append((target, to_add, m.marketParams()))
+                    return (target, to_add, m.marketParams())
+
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
+            futures = {
+                executor.submit(
+                    liquidity_needed,
+                    m,
+                    maxRate,
+                    self.vault.assetDecimals,
+                ): m
+                for m in self.vault.getBorrowMarkets()
+            }
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    target, to_add, marketParams = future.result()
+                    actions.append((target, to_add, marketParams))
+                    neededLiquidity += to_add
 
         # If there is not enough liquidity from active market, add the idle market first
+        print()
         print(f"Available {availableLiquidity:,.0f} needed {neededLiquidity:,.0f}")
         if (
             availableLiquidity < neededLiquidity
@@ -726,6 +817,9 @@ class MorphoCli(cmd.Cmd):
                 overflowMarketData.totalSupplyAssets
                 - overflowMarketData.totalBorrowAssets
             )
+            # todo: check if this is the right market to take liquidity from (maybe this should be the idle market instead of the sDAI market)
+            m = self.vault.getMarketByCollateral("sDAI")
+
             if overflowLiquidity > 0:
                 log(
                     f"{m.collateralTokenSymbol}: Take all liquidity {availableLiquidity:,.0f} ({overflowMarketData.totalSupplyAssets:,.0f} -> {overflowMarketData.totalBorrowAssets:,.0f})"
@@ -838,6 +932,20 @@ class MorphoCli(cmd.Cmd):
             self.reallocation_pyusd(args == "execute")
 
     def do_full(self, args):
+        # todo: print outs are async and cause confusion (obviously).  If this is important for speed we can make them vars and print at end in order (as a quick idea)
+        # tasks = [
+        #     (self.do_summary, ""),
+        #     (self.do_competition, ""),
+        #     (self.do_reallocation, "execute"),
+        #     (self.do_borrowers, ""),
+        # ]
+
+        # # Execute tasks in parallel
+        # with ThreadPoolExecutor() as executor:
+        #     # Executes the tasks [0] and gives the input [1]
+        #     futures = [executor.submit(task[0], task[1]) for task in tasks]
+        #     for future in futures:
+        #         future.result()  # This will re-raise any exceptions encountered in the task
         self.do_summary("")
         self.do_competition("")
         self.do_reallocation("execute")
@@ -846,14 +954,7 @@ class MorphoCli(cmd.Cmd):
 
 if __name__ == "__main__":
 
-    morpho_cli_start = time.time()
-    print("Starting Morpho CLI: ", datetime.fromtimestamp(morpho_cli_start))
-
     if len(sys.argv) > 1:
         MorphoCli().onecmd(" ".join(sys.argv[1:]))
     else:
         MorphoCli().cmdloop()
-
-    morpho_cli_end = time.time()
-    print("Ending Morpho CLI: ", datetime.fromtimestamp(morpho_cli_end))
-    print("Total time: ", morpho_cli_end - morpho_cli_start)

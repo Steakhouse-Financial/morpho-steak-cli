@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 from morpho.utils import POW_10_18, POW_10_36, secondToAPYRate
 from morpho.utils import rateToTargetRate
 from dataclasses import dataclass
@@ -37,42 +39,25 @@ class MaketData:
 class MorphoMarket:
 
     def __init__(self, web3, blue, id):
-        overall_start_time = time.time()
 
-        self.start_time = time.time()
         self.web3 = web3
         self.blue = blue
         self.id = id
         params = blue.marketParams(id)
         self.params = params
-        self.section_time = time.time()
-        print(
-            f"Initialization part 1 took {self.section_time - self.start_time:.2f} seconds"
-        )
 
-        self.start_time = time.time()
         if params.irm != "0x0000000000000000000000000000000000000000":
             self.irmContract = web3.eth.contract(
                 address=web3.to_checksum_address(params.irm),
                 abi=json.load(open("abis/irm.json")),
             )
-        self.section_time = time.time()
-        print(
-            f"IRM contract loading took {self.section_time - self.start_time:.2f} seconds"
-        )
 
-        self.start_time = time.time()
         if params.oracle != "0x0000000000000000000000000000000000000000":
             self.oracleContract = web3.eth.contract(
                 address=web3.to_checksum_address(params.oracle),
                 abi=json.load(open("abis/oracle.json")),
             )
-        self.section_time = time.time()
-        print(
-            f"Oracle contract loading took {self.section_time - self.start_time:.2f} seconds"
-        )
 
-        self.start_time = time.time()
         self.collateralToken = params.collateralToken
         cached_details_collateral = get_token_details(self.collateralToken)
         if (
@@ -105,12 +90,6 @@ class MorphoMarket:
             self.collateralTokenSymbol = cached_details_collateral["symbol"]
         else:
             self.collateralTokenSymbol = "Idle"
-        self.section_time = time.time()
-        print(
-            f"Collateral token processing took {self.section_time - self.start_time:.2f} seconds"
-        )
-
-        self.start_time = time.time()
 
         self.loanToken = params.loanToken
         cached_details_loan = get_token_details(self.loanToken)
@@ -120,19 +99,9 @@ class MorphoMarket:
                 address=web3.to_checksum_address(params.loanToken),
                 abi=json.load(open("abis/erc20.json")),
             )
-            contract_creation_end = time.time()
-
-            # Step 2: Fetching Decimals
-            fetch_decimals_start = time.time()
             self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
-            fetch_decimals_end = time.time()
-
-            # Step 3: Fetching Symbol
-            fetch_symbol_start = time.time()
             self.loanTokenSymbol = self.loanTokenContract.functions.symbol().call()
-            fetch_symbol_end = time.time()
-
-            self.section_time = time.time()
+            self.loanTokenFactor = pow(10, self.loanTokenDecimals)
 
             cache_token_details(
                 self.loanToken,
@@ -142,26 +111,15 @@ class MorphoMarket:
                     "symbol": self.loanTokenSymbol,
                 },
             )
-
         else:
             self.loanTokenDecimals = cached_details_loan["decimals"]
             self.loanTokenSymbol = cached_details_loan["symbol"]
             self.loanTokenFactor = cached_details_loan["factor"]
 
-        self.section_time = time.time()
-        print(
-            f"Loan token processing took {self.section_time - self.start_time:.2f} seconds"
-        )
-        # Cache elements initialization time isn't benchmarked as it's likely negligible
         self.lastRate = 0
         self.lastRateUpdate = 0
         self.lastMarketData = None
         self.lastMarketDataUpdate = 0
-
-        overall_end_time = time.time()
-        print(
-            f"Overall MorphoMarket init took {overall_end_time - overall_start_time:.2f} seconds"
-        )
 
     def isIdleMarket(self):
         return self.collateralToken == "0x0000000000000000000000000000000000000000"
@@ -277,17 +235,35 @@ class MorphoMarket:
         )
 
     def collateralPrice(self):
-        if time.time() < self.lastOracleUpdate + 5:
-            return self.oraclePrice
-
-        self.lastOracleUpdate = time.time()
-        self.oraclePrice = self.oracleContract.functions.price().call() / (
-            self.loanTokenFactor * self.collateralTokenFactor
-        )
+        # todo: this oracle pricing is giving old and wrong results
+        lastUpdate = getattr(self, "lastOracleUpdate", None)
+        if lastUpdate is None or time.time() > lastUpdate + 5:
+            self.lastOracleUpdate = time.time()
+            self.oraclePrice = self.oracleContract.functions.price().call() / (
+                self.loanTokenFactor * self.collateralTokenFactor
+            )
         return self.oraclePrice
 
     def borrowers(self):
+        def fetch_position(borrower):
+            return self.position(borrower)
+
         borrowers = []
-        for b in self.blue.borrowers(self.id):
-            borrowers.append(self.position(b))
+        with ThreadPoolExecutor(
+            max_workers=os.environ.get("MAX_WORKERS", 10)
+        ) as executor:
+            # Create a future for each borrower
+            future_to_borrower = {
+                executor.submit(fetch_position, b): b
+                for b in self.blue.borrowers(self.id)
+            }
+
+            for future in as_completed(future_to_borrower):
+                try:
+                    borrower_position = future.result()
+                    borrowers.append(borrower_position)
+                except Exception as exc:
+                    print(f"An error occurred: {exc}")
+
+        # Sort the borrowers by LTV in reverse order
         return sorted(borrowers, key=lambda p: p.ltv, reverse=True)
