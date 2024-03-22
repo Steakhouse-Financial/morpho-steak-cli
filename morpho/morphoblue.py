@@ -1,4 +1,3 @@
-
 import json
 from .morphomarket import MorphoMarket
 from dataclasses import dataclass
@@ -14,28 +13,29 @@ class MaketParams:
     lltv: str
 
     def toGnosisSafeString(self):
-        return f"[\"{self.loanToken}\",\"{self.collateralToken}\",\"{self.oracle}\",\"{self.irm}\",\"{self.lltv}\"]"
-    
+        return f'["{self.loanToken}","{self.collateralToken}","{self.oracle}","{self.irm}","{self.lltv}"]'
+
     def toTuple(self):
         return (self.loanToken, self.collateralToken, self.oracle, self.irm, self.lltv)
 
+
 class MorphoBlue:
-    
-    def __init__(self, web3, address, markets = ''):
+
+    def __init__(self, web3, address, markets=""):
         self.web3 = web3
-        self.abi = json.load(open('abis/morphoblue.json'))
+        self.abi = json.load(open("abis/morphoblue.json"))
         self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
-        
-        readerAbi = json.load(open('abis/MorphoReader.json'))
-        readerAddress = web3.to_checksum_address(os.environ.get('MORPHO_READER'))
+
+        readerAbi = json.load(open("abis/MorphoReader.json"))
+        readerAddress = web3.to_checksum_address(os.environ.get("MORPHO_READER"))
         self.reader = web3.eth.contract(address=readerAddress, abi=readerAbi)
 
         self.markets = []
-        for id in markets.split(','):
-            if(not id == ''):
+        for id in markets.split(","):
+            if not id == "":
                 self.addMarket(id.lower().strip())
-    
+
     def marketData(self, id):
         return self.reader.functions.getMarketData(id).call()
 
@@ -49,9 +49,9 @@ class MorphoBlue:
         return market
 
     def getMarket(self, market):
-        if(market.startWith('0x')):
+        if market.startWith("0x"):
             return self.getMarketById(market)
-        
+
     def getMarketById(self, id):
         for m in self.markets:
             if m.id == id:
@@ -64,11 +64,14 @@ class MorphoBlue:
 
     def position(self, id, address):
         return self.reader.functions.getPosition(id, address).call()
-        
-    
+
     def borrowers(self, id):
         borrowers = set()
-        logs = self.contract.events.Borrow().create_filter(fromBlock=18920518, argument_filters={'id':id}).get_all_entries()
+        logs = (
+            self.contract.events.Borrow()
+            .create_filter(fromBlock=18920518, argument_filters={"id": id})
+            .get_all_entries()
+        )
         for log in logs:
             borrowers.add(log.args.onBehalf)
         return list(borrowers)
