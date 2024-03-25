@@ -1,0 +1,47 @@
+{
+    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48": {
+        "decimals": 6,
+        "symbol": "USDC",
+        "factor": 1000000
+    },
+    "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599": {
+        "decimals": 8,
+        "factor": 100000000,
+        "symbol": "WBTC"
+    },
+    "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0": {
+        "decimals": 18,
+        "factor": 1000000000000000000,
+        "symbol": "wstETH"
+    },
+    "0x83F20F44975D03b1b09e64809B757c47f942BEeA": {
+        "decimals": 18,
+        "factor": 1000000000000000000,
+        "symbol": "sDAI"
+    },
+    "0xcA2A7068e551d5C4482eb34880b194E4b945712F": {
+        "decimals": 18,
+        "factor": 1000000000000000000,
+        "symbol": "wbIB01"
+    },
+    "0x6c3ea9036406852006290770BEdFcAbA0e23A0e8": {
+        "decimals": 6,
+        "symbol": "PYUSD",
+        "factor": 1000000
+    },
+    "0x57F5E098CaD7A3D1Eed53991D4d66C45C9AF7812": {
+        "decimals": 18,
+        "symbol": "wUSDM",
+        "factor": 1000000000000000000
+    },
+    "0xdAC17F958D2ee523a2206206994597C13D831ec7": {
+        "decimals": 6,
+        "symbol": "USDT",
+        "factor": 1000000
+    },
+    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": {
+        "decimals": 18,
+        "factor": 1000000000000000000,
+        "symbol": "WETH"
+    }
+}
