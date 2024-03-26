@@ -13,14 +13,19 @@ class MaketParams:
     lltv: str
 
     def toGnosisSafeString(self):
-        return f'["{self.loanToken}","{self.collateralToken}","{self.oracle}","{self.irm}","{self.lltv}"]'
+        return (
+            f'["{self.loanToken}",'
+            f'"{self.collateralToken}",'
+            f'"{self.oracle}",'
+            f'"{self.irm}",'
+            f'"{self.lltv}"]'
+        )
 
     def toTuple(self):
         return (self.loanToken, self.collateralToken, self.oracle, self.irm, self.lltv)
 
 
 class MorphoBlue:
-
     def __init__(self, web3, address, markets=""):
         self.web3 = web3
         self.abi = json.load(open("abis/morphoblue.json"))
@@ -33,7 +38,6 @@ class MorphoBlue:
 
         self.markets = []
         markets = markets or ""
-        count = 0
         for id in markets.split(","):
             if not id == "":
                 self.addMarket(id.lower().strip())
@@ -57,11 +61,6 @@ class MorphoBlue:
     def getMarketById(self, id):
         for m in self.markets:
             if m.id == id:
-                return m
-
-    def getMarket(self, name):
-        for m in self.markets:
-            if m.name() == name:
                 return m
 
     def position(self, id, address):
