@@ -16,7 +16,7 @@ class MaketParams:
         return (
             f'["{self.loanToken}",'
             f'"{self.collateralToken}",'
-            f'"{self.oracle}",'
+            f'"{self.oracle}",  '
             f'"{self.irm}",'
             f'"{self.lltv}"]'
         )
