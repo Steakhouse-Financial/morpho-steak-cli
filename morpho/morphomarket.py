@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from morpho.utils import POW_10_18
-from morpho.utils import rateToTargetRate
+from morpho.utils import rate_to_target_rate
 from dataclasses import dataclass
 import time
 
@@ -12,28 +12,28 @@ from utils.cache import cache_token_details, get_token_details
 @dataclass
 class Position:
     address: str
-    supplyShares: float
-    supplyAssets: float
-    borrowShares: float
-    borrowAssets: float
+    supply_shares: float
+    supply_assets: float
+    borrow_shares: float
+    borrow_assets: float
     collateral: float
-    collateralValue: float
-    collateralPrice: float
+    collateral_value: float
+    collateral_price: float
     ltv: float
-    healthRatio: float
+    health_ratio: float
 
 
 @dataclass
 class MaketData:
-    totalSupplyAssets: float
-    totalSupplyShares: float
-    totalBorrowAssets: float
-    totalBorrowShares: float
+    total_supply_assets: float
+    total_supply_shares: float
+    total_borrow_assets: float
+    total_borrow_shares: float
     fee: float
     utilization: float
-    supplyRate: float
-    borrowRate: float
-    borrowRateAtTarget: float
+    supply_rate: float
+    borrow_rate: float
+    borrow_rate_at_target: float
 
 
 class MorphoMarket:
@@ -41,128 +41,130 @@ class MorphoMarket:
         self.web3 = web3
         self.blue = blue
         self.id = id
-        params = blue.marketParams(id)
+        params = blue.market_params(id)
         self.params = params
 
         if params.irm != "0x0000000000000000000000000000000000000000":
-            self.irmContract = web3.eth.contract(
+            self.irm_contract = web3.eth.contract(
                 address=web3.to_checksum_address(params.irm),
                 abi=json.load(open("abis/irm.json")),
             )
 
         if params.oracle != "0x0000000000000000000000000000000000000000":
-            self.oracleContract = web3.eth.contract(
+            self.oracle_contract = web3.eth.contract(
                 address=web3.to_checksum_address(params.oracle),
                 abi=json.load(open("abis/oracle.json")),
             )
-        self.lastOracleUpdate = 0
+        self.last_oracle_update = 0
         self.lltv = self.params.lltv / POW_10_18
 
         # Get some data from erc20
-        self.collateralToken = params.collateralToken
-        cached_details_collateral = get_token_details(self.collateralToken)
+        self.colateral_token = params.colateral_token
+        cached_details_collateral = get_token_details(self.colateral_token)
         if (
-            self.collateralToken != "0x0000000000000000000000000000000000000000"
+            self.colateral_token != "0x0000000000000000000000000000000000000000"
             and not cached_details_collateral
         ):
-            self.collateralTokenContract = web3.eth.contract(
-                address=web3.to_checksum_address(params.collateralToken),
+            self.colateral_token_contract = web3.eth.contract(
+                address=web3.to_checksum_address(params.colateral_token),
                 abi=json.load(open("abis/erc20.json")),
             )
-            self.collateralTokenDecimals = (
-                self.collateralTokenContract.functions.decimals().call()
+            self.colateral_token_decimals = (
+                self.colateral_token_contract.functions.decimals().call()
             )
-            self.collateralTokenFactor = pow(10, self.collateralTokenDecimals)
-            self.collateralTokenSymbol = (
-                self.collateralTokenContract.functions.symbol().call()
+            self.colateral_token_factor = pow(10, self.colateral_token_decimals)
+            self.collateral_token_symbol = (
+                self.colateral_token_contract.functions.symbol().call()
             )
             # Cache the new token details
             cache_token_details(
-                self.collateralToken,
+                self.colateral_token,
                 {
-                    "decimals": self.collateralTokenDecimals,
-                    "factor": self.collateralTokenFactor,
-                    "symbol": self.collateralTokenSymbol,
+                    "decimals": self.colateral_token_decimals,
+                    "factor": self.colateral_token_factor,
+                    "symbol": self.collateral_token_symbol,
                 },
             )
         elif cached_details_collateral:
-            self.collateralTokenDecimals = cached_details_collateral["decimals"]
-            self.collateralTokenFactor = cached_details_collateral["factor"]
-            self.collateralTokenSymbol = cached_details_collateral["symbol"]
+            self.colateral_token_decimals = cached_details_collateral["decimals"]
+            self.colateral_token_factor = cached_details_collateral["factor"]
+            self.collateral_token_symbol = cached_details_collateral["symbol"]
         else:
-            self.collateralTokenSymbol = "Idle"
+            self.collateral_token_symbol = "Idle"
 
-        self.loanToken = params.loanToken
-        cached_details_loan = get_token_details(self.loanToken)
+        self.loan_token = params.loan_token
+        cached_details_loan = get_token_details(self.loan_token)
         if not cached_details_loan:
-            self.loanTokenContract = web3.eth.contract(
+            self.loan_token_contract = web3.eth.contract(
                 address=web3.to_checksum_address(params.loanToken),
                 abi=json.load(open("abis/erc20.json")),
             )
-            self.loanTokenDecimals = self.loanTokenContract.functions.decimals().call()
-            self.loanTokenSymbol = self.loanTokenContract.functions.symbol().call()
-            self.loanTokenFactor = pow(10, self.loanTokenDecimals)
+            self.loan_token_decimals = (
+                self.loan_token_contract.functions.decimals().call()
+            )
+            self.loan_token_symbol = self.loan_token_contract.functions.symbol().call()
+            self.loan_token_factor = pow(10, self.loan_token_decimals)
 
             cache_token_details(
-                self.loanToken,
+                self.loan_token,
                 {
-                    "decimals": self.loanTokenDecimals,
-                    "factor": self.loanTokenFactor,
-                    "symbol": self.loanTokenSymbol,
+                    "decimals": self.loan_token_decimals,
+                    "factor": self.loan_token_factor,
+                    "symbol": self.loan_token_symbol,
                 },
             )
         else:
-            self.loanTokenDecimals = cached_details_loan["decimals"]
-            self.loanTokenSymbol = cached_details_loan["symbol"]
-            self.loanTokenFactor = cached_details_loan["factor"]
+            self.loan_token_decimals = cached_details_loan["decimals"]
+            self.loan_token_symbol = cached_details_loan["symbol"]
+            self.loan_token_factor = cached_details_loan["factor"]
 
         # Cache elements
 
-        self.lastRate = 0
-        self.lastRateUpdate = 0
-        self.lastMarketData = None
-        self.lastMarketDataUpdate = 0
+        self.last_rate = 0
+        self.last_rate_update = 0
+        self.last_market_data = None
+        self.last_market_data_update = 0
 
-    def isIdleMarket(self):
-        return self.collateralToken == "0x0000000000000000000000000000000000000000"
+    def is_idle_market(self):
+        return self.colateral_token == "0x0000000000000000000000000000000000000000"
 
     def name(self):
-        return "{0}[{1}]".format(self.loanTokenSymbol, self.collateralTokenSymbol)
+        return "{0}[{1}]".format(self.loan_token_symbol, self.collateral_token_symbol)
 
-    def borrowRate(self):
-        return self.marketData().borrowRate
+    def borrow_rate(self):
+        return self.market_data().borrow_rate
 
-    def rateAtTarget(self):
-        return self.marketData().borrowRateAtTarget
+    def rate_at_target(self):
+        return self.market_data().borrow_rate_at_target
 
-    def _marketData(self):
-        if time.time() < self.lastMarketDataUpdate + 5:
-            return self.lastMarketData
-        self.lastMarketData = self.blue.marketData(self.id)
-        self.lastMarketDataUpdate = time.time()
-        return self.lastMarketData
+    def _market_data(self):
+        if time.time() < self.last_market_data_update + 5:
+            return self.last_market_data
+        self.last_market_data = self.blue.market_data(self.id)
+        self.last_market_data_update = time.time()
+        return self.last_market_data
 
-    def marketParams(self):
+    def market_params(self):
         return self.params
 
-    def marketData(self):
+    def market_data(self):
         (
-            totalSupplyAssets,
-            totalSupplyShares,
-            totalBorrowAssets,
-            totalBorrowShares,
+            total_supply_assets,
+            total_supply_shares,
+            total_borrow_assets,
+            total_borrow_shares,
             fee,
             utilization,
-            supplyRate,
-            borrowRate,
-        ) = self._marketData()
+            supply_rate,
+            borrow_rate,
+        ) = self._market_data()
 
-        if self.isIdleMarket():
+        if self.is_idle_market():
             return MaketData(
-                totalSupplyAssets / self.loanTokenFactor,
-                totalSupplyShares / POW_10_18,
-                totalBorrowAssets / self.loanTokenFactor,
-                totalBorrowShares / POW_10_18,
+                total_supply_assets / self.loan_token_factor,
+                total_supply_shares / POW_10_18,
+                total_borrow_assets / self.loan_token_factor,
+                total_borrow_shares / POW_10_18,
                 fee,
                 0,
                 0,
@@ -170,45 +172,45 @@ class MorphoMarket:
                 0,
             )
 
-        borrowRate = borrowRate / POW_10_18
-        rateAtTarget = rateToTargetRate(borrowRate, utilization / POW_10_18)
-        supplyRate = (
-            borrowRate * totalBorrowAssets / totalSupplyAssets
-            if totalSupplyAssets
+        borrow_rate = borrow_rate / POW_10_18
+        rate_at_target = rate_to_target_rate(borrow_rate, utilization / POW_10_18)
+        supply_rate = (
+            borrow_rate * total_borrow_assets / total_supply_assets
+            if total_supply_assets
             else 0
-        )  # TODO: Don't work with fees
+        )  # TODO: Doesn't work with fees
 
         return MaketData(
-            totalSupplyAssets / self.loanTokenFactor,
-            totalSupplyShares / POW_10_18,
-            totalBorrowAssets / self.loanTokenFactor,
-            totalBorrowShares / POW_10_18,
+            total_supply_assets / self.loan_token_factor,
+            total_supply_shares / POW_10_18,
+            total_borrow_assets / self.loan_token_factor,
+            total_borrow_shares / POW_10_18,
             fee,
-            totalBorrowAssets / totalSupplyAssets if totalSupplyAssets else 0,
-            supplyRate,
-            borrowRate,
-            rateAtTarget,
+            total_borrow_assets / total_supply_assets if total_supply_assets else 0,
+            supply_rate,
+            borrow_rate,
+            rate_at_target,
         )
 
     def position(self, address):
         (
-            suppliedShares,
-            suppliedAssets,
-            borrowedShares,
-            borrowedAssets,
+            supplied_shares,
+            supplied_assets,
+            borrowed_shares,
+            borrowed_assets,
             collateral,
-            collateralValue,
+            collateral_value,
             ltv,
-            healthRatio,
+            health_ratio,
         ) = self.blue.reader.functions.getPosition(
             self.id, self.web3.to_checksum_address(address)
         ).call()
 
-        if self.isIdleMarket():
+        if self.is_idle_market():
             return Position(
                 address,
-                suppliedShares / POW_10_18,
-                suppliedAssets / self.loanTokenFactor,
+                supplied_shares / POW_10_18,
+                supplied_assets / self.loan_token_factor,
                 0,
                 0,
                 0,
@@ -220,32 +222,32 @@ class MorphoMarket:
 
         return Position(
             address,
-            suppliedShares / POW_10_18,
-            suppliedAssets / self.loanTokenFactor,
-            borrowedShares / POW_10_18,
-            borrowedAssets / self.loanTokenFactor,
-            collateral / self.collateralTokenFactor,
-            collateralValue / self.loanTokenFactor,
+            supplied_shares / POW_10_18,
+            supplied_assets / self.loan_token_factor,
+            borrowed_shares / POW_10_18,
+            borrowed_assets / self.loan_token_factor,
+            collateral / self.colateral_token_factor,
+            collateral_value / self.loan_token_factor,
             (
-                (collateralValue / self.loanTokenFactor)
-                / (collateral / self.collateralTokenFactor)
+                (collateral_value / self.loan_token_factor)
+                / (collateral / self.colateral_token_factor)
                 if collateral > 0
                 else 0
             ),
             ltv / POW_10_18,
-            healthRatio / POW_10_18,
+            health_ratio / POW_10_18,
         )
 
-    def collateralPrice(self):
+    def collateral_price(self):
         # todo: this oracle pricing is giving old and wrong results
-        lastUpdate = getattr(self, "lastOracleUpdate", None)
-        if lastUpdate is None or time.time() > lastUpdate + 5:
-            self.lastOracleUpdate = time.time()
-            self.oraclePrice = self.oracleContract.functions.price().call() / (
+        last_update = getattr(self, "last_oracle_update", None)
+        if last_update is None or time.time() > last_update + 5:
+            self.last_oracle_update = time.time()
+            self.oracle_price = self.oracle_contract.functions.price().call() / (
                 # Look at this for the decimals
-                self.loanTokenFactor * self.collateralTokenFactor
+                self.loan_token_factor * self.colateral_token_factor
             )
-        return self.oraclePrice
+        return self.oracle_price
 
     def borrowers(self):
         def fetch_position(borrower):
