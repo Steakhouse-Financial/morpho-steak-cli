@@ -45,8 +45,11 @@ class MorphoBlue:
         data = self.contract.functions.idToMarketParams(id).call()
         return MaketParams(data[0], data[1], data[2], data[3], data[4])
 
-    def addMarket(self, id):
-        market = MorphoMarket(self.web3, self, id)
+    def addMarket(self, id: str | bytes):
+        if isinstance(id, str):
+            market = MorphoMarket(self.web3, self, id)
+        elif isinstance(id, bytes):
+            market = MorphoMarket(self.web3, self, "0x" + id.hex())
         self.markets.append(market)
         return market
 
