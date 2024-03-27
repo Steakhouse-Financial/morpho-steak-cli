@@ -1,6 +1,5 @@
 import os
 import json
-from web3 import Web3
 
 
 def aaveV3Rates(web3, token, nbBlocks=50):

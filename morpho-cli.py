@@ -1,4 +1,3 @@
-import time
 from web3 import Web3
 from web3 import Account
 import json
@@ -11,7 +10,6 @@ import cmd
 import math
 import competition
 from texttable import Texttable
-from web3.gas_strategies.time_based import medium_gas_price_strategy
 from web3.gas_strategies.rpc import rpc_gas_price_strategy
 import oneinch
 from datetime import datetime
@@ -187,7 +185,6 @@ class MorphoCli(cmd.Cmd):
                 print()
 
     def do_market_borrowers(self, address):
-
         if self.blue is None:
             print("First add a some market to get a blue object")
             return
@@ -224,7 +221,6 @@ class MorphoCli(cmd.Cmd):
         table.set_cols_align(["l", "r", "r", "r"])
         table.set_deco(Texttable.HEADER)
 
-        start = time.time()
         with ThreadPoolExecutor(len(tasks)) as executor:
             future_to_task = {
                 executor.submit(fetch_rates, *task): task[0] for task in tasks
@@ -448,7 +444,7 @@ class MorphoCli(cmd.Cmd):
         maxRate["wstETH"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
         )
-        # todo: Get the proper maxRate
+        # todo: Get the proper maxRate (hold for now)
         # I am assuming this needs to be maxRate["WBTC"] vs. min since min rate is instantiated above
         maxRate["WBTC"] = (
             targetBaseRate  # max(min(aRate, aRateDay) * 0.80, min(aRate, 0.047))
@@ -538,8 +534,8 @@ class MorphoCli(cmd.Cmd):
             availableLiquidity < neededLiquidity
             or overflowMarket.borrowRate() > targetBaseRate + 0.01
         ):
-            # Unwind the sDAI bot
-            sDAIBotUnwinded = True
+            # Unwind the sDAI bot (uncomment when ready)
+            # sDAIBotUnwinded = True
 
             # take all liquidity from sDAI market
             overflowLiquidity = (
@@ -656,7 +652,8 @@ class MorphoCli(cmd.Cmd):
             print("Works only for steakUSDC for now")
             return
 
-        sDAIBotUnwinded = False
+        # not being used, leaving to ensure is ok
+        # sDAIBotUnwinded = False
 
         # don't seem necessary
         # (a0, aRate, a1) = competition.aaveV3Rates(self.web3, self.vault.asset)
@@ -807,8 +804,8 @@ class MorphoCli(cmd.Cmd):
             availableLiquidity < neededLiquidity
             or overflowMarket.borrowRate() > targetBaseRate + 0.01
         ):
-            # Unwind the sDAI bot
-            sDAIBotUnwinded = True
+            # Unwind the sDAI bot (uncomment when ready)
+            # sDAIBotUnwinded = True
 
             # take all liquidity from sDAI market
             overflowLiquidity = (
@@ -951,7 +948,6 @@ class MorphoCli(cmd.Cmd):
 
 
 if __name__ == "__main__":
-
     if len(sys.argv) > 1:
         MorphoCli().onecmd(" ".join(sys.argv[1:]))
     else:
