@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from morpho.utils import POW_10_18
@@ -42,6 +43,7 @@ class MorphoMarket:
         self.id = id
         params = blue.marketParams(id)
         self.params = params
+
         if params.irm != "0x0000000000000000000000000000000000000000":
             self.irmContract = web3.eth.contract(
                 address=web3.to_checksum_address(params.irm),
@@ -89,6 +91,7 @@ class MorphoMarket:
             self.collateralTokenSymbol = cached_details_collateral["symbol"]
         else:
             self.collateralTokenSymbol = "Idle"
+
         self.loanToken = params.loanToken
         cached_details_loan = get_token_details(self.loanToken)
         if not cached_details_loan:
@@ -245,6 +248,9 @@ class MorphoMarket:
         return self.oraclePrice
 
     def borrowers(self):
+        def fetch_position(borrower):
+            return self.position(borrower)
+
         borrowers = []
         with ThreadPoolExecutor(
             max_workers=os.environ.get("MAX_WORKERS", 10)
