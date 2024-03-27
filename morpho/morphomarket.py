@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-from morpho.utils import POW_10_18, POW_10_36, secondToAPYRate
+from morpho.utils import POW_10_18
 from morpho.utils import rateToTargetRate
 from dataclasses import dataclass
 import time
@@ -37,9 +37,7 @@ class MaketData:
 
 
 class MorphoMarket:
-
     def __init__(self, web3, blue, id):
-
         self.web3 = web3
         self.blue = blue
         self.id = id
@@ -97,7 +95,6 @@ class MorphoMarket:
         self.loanToken = params.loanToken
         cached_details_loan = get_token_details(self.loanToken)
         if not cached_details_loan:
-
             self.loanTokenContract = web3.eth.contract(
                 address=web3.to_checksum_address(params.loanToken),
                 abi=json.load(open("abis/erc20.json")),
@@ -245,6 +242,7 @@ class MorphoMarket:
         if lastUpdate is None or time.time() > lastUpdate + 5:
             self.lastOracleUpdate = time.time()
             self.oraclePrice = self.oracleContract.functions.price().call() / (
+                # Look at this for the decimals
                 self.loanTokenFactor * self.collateralTokenFactor
             )
         return self.oraclePrice

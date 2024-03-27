@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import datetime
 import os
-import time
 
 from utils.cache import (
     cache_morpho_details,
@@ -11,13 +10,11 @@ from utils.cache import (
     get_token_details,
 )
 
-from .morphomarket import MorphoMarket, Position
 from .morphoblue import MorphoBlue
 
 
 class MetaMorpho:
     def __init__(self, web3, address):
-
         self.abi = json.load(open("abis/metamorpho.json"))
         self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
