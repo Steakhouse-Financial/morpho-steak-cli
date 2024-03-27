@@ -6,23 +6,23 @@ import os
 
 @dataclass
 class MaketParams:
-    loanToken: str
-    collateralToken: str
+    loan_token: str
+    colateral_token: str
     oracle: str
     irm: str
     lltv: str
 
-    def toGnosisSafeString(self):
+    def to_gnosis_safe_string(self):
         return (
-            f'["{self.loanToken}",'
-            f'"{self.collateralToken}",'
+            f'["{self.loan_token}",'
+            f'"{self.colateral_token}",'
             f'"{self.oracle}",'
             f'"{self.irm}",'
             f'"{self.lltv}"]'
         )
 
-    def toTuple(self):
-        return (self.loanToken, self.collateralToken, self.oracle, self.irm, self.lltv)
+    def to_tuple(self):
+        return (self.loan_token, self.colateral_token, self.oracle, self.irm, self.lltv)
 
 
 class MorphoBlue:
@@ -32,24 +32,24 @@ class MorphoBlue:
         self.address = web3.to_checksum_address(address)
         self.contract = web3.eth.contract(address=self.address, abi=self.abi)
 
-        readerAbi = json.load(open("abis/MorphoReader.json"))
-        readerAddress = web3.to_checksum_address(os.environ.get("MORPHO_READER"))
-        self.reader = web3.eth.contract(address=readerAddress, abi=readerAbi)
+        reader_abi = json.load(open("abis/MorphoReader.json"))
+        reader_address = web3.to_checksum_address(os.environ.get("MORPHO_READER"))
+        self.reader = web3.eth.contract(address=reader_address, abi=reader_abi)
 
         self.markets = []
         markets = markets or ""
         for id in markets.split(","):
             if not id == "":
-                self.addMarket(id.lower().strip())
+                self.add_market(id.lower().strip())
 
-    def marketData(self, id):
+    def market_data(self, id):
         return self.reader.functions.getMarketData(id).call()
 
-    def marketParams(self, id):
+    def market_params(self, id):
         data = self.contract.functions.idToMarketParams(id).call()
         return MaketParams(data[0], data[1], data[2], data[3], data[4])
 
-    def addMarket(self, id: str | bytes):
+    def add_market(self, id):
         if isinstance(id, str):
             market = MorphoMarket(self.web3, self, id)
         elif isinstance(id, bytes):
@@ -57,11 +57,11 @@ class MorphoBlue:
         self.markets.append(market)
         return market
 
-    def getMarket(self, market):
+    def get_market(self, market):
         if market.startWith("0x"):
-            return self.getMarketById(market)
+            return self.get_market_by_id(market)
 
-    def getMarketById(self, id):
+    def get_market_by_id(self, id):
         for m in self.markets:
             if m.id == id:
                 return m

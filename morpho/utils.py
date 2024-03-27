@@ -27,7 +27,7 @@ def curve(utilization):
         return (1 - 1 / CURVE_STEEPNESS) * err + 1
 
 
-def rateToTargetRate(rate, utilization):
+def rate_to_target_rate(rate, utilization):
     return rate / curve(utilization)
 
 
@@ -42,18 +42,19 @@ def rate_from_target(rate_at_target: float, utilization: float) -> float:
 
 
 # From a current target rate, find the utilization ratio that match the wanted borrow rate
-def utilizationForRate(targetRate, rate):
+def utilization_for_rate(targetRate, rate):
     if rate > targetRate:
-        maxRate = CURVE_STEEPNESS * targetRate
-        if rate > maxRate:
+        max_rate = CURVE_STEEPNESS * target_rate
+        if rate > max_rate:
+
             return 1.0
         else:
             return TARGET_UTILIZATION + (1 - TARGET_UTILIZATION) * (
-                rate - targetRate
-            ) / (maxRate - targetRate)
+                rate - target_rate
+            ) / (max_rate - target_rate)
     else:
-        minRate = (1 / CURVE_STEEPNESS) * targetRate
-        if rate < minRate:
+        min_rate = (1 / CURVE_STEEPNESS) * target_rate
+        if rate < min_rate:
             return 0.0
         else:
-            return TARGET_UTILIZATION * (rate - minRate) / (targetRate - minRate)
+            return TARGET_UTILIZATION * (rate - min_rate) / (target_rate - min_rate)
