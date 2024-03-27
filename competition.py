@@ -2,7 +2,7 @@ import os
 import json
 
 
-def aaveV3Rates(web3, token, nbBlocks=50):
+def aave_v3_rates(web3, token, nbBlocks=50):
     address = os.environ.get("AAVE_V3_POOL")
     contract = web3.eth.contract(
         address=web3.to_checksum_address(address),
@@ -32,19 +32,21 @@ def aaveV3Rates(web3, token, nbBlocks=50):
             print(f"Error: No logs found for {token}")
             return (0, 0, 0)
 
-    borrowRate = 0
-    supplyRate = 0
+    borrow_rate = 0
+    supply_rate = 0
 
     for log in logs:
-        borrowRate += log.args.variableBorrowRate / pow(10, 27)
-        supplyRate += log.args.liquidityRate / pow(10, 27)
+        borrow_rate += log.args.variableBorrowRate / pow(10, 27)
+        supply_rate += log.args.liquidityRate / pow(10, 27)
 
-    borrowRate = borrowRate / cnt
-    supplyRate = supplyRate / cnt
-    return (supplyRate, borrowRate, cnt)
+    borrow_rate = borrow_rate / cnt
+    supply_rate = supply_rate / cnt
+    return (supply_rate, borrow_rate, cnt)
 
 
-def sparkRates(web3, token="0x6b175474e89094c44da98b954eedeac495271d0f", nbBlocks=1000):
+def spark_rates(
+    web3, token="0x6b175474e89094c44da98b954eedeac495271d0f", nbBlocks=1000
+):
     address = os.environ.get("SPARK_POOL")
     contract = web3.eth.contract(
         address=web3.to_checksum_address(address),
@@ -75,14 +77,14 @@ def sparkRates(web3, token="0x6b175474e89094c44da98b954eedeac495271d0f", nbBlock
         print(f"Error: No logs found for {token}")
         return (0, 0, 0)
 
-    borrowRate = 0
-    supplyRate = 0
+    borrow_rate = 0
+    supply_rate = 0
 
     for log in logs:
         # print(log)
-        borrowRate += log.args.variableBorrowRate / pow(10, 27)
-        supplyRate += log.args.liquidityRate / pow(10, 27)
+        borrow_rate += log.args.variableBorrowRate / pow(10, 27)
+        supply_rate += log.args.liquidityRate / pow(10, 27)
 
-    borrowRate = borrowRate / cnt
-    supplyRate = supplyRate / cnt
-    return (supplyRate, borrowRate, cnt)
+    borrow_rate = borrow_rate / cnt
+    supply_rate = supply_rate / cnt
+    return (supply_rate, borrow_rate, cnt)

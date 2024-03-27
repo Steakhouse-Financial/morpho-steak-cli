@@ -24,7 +24,7 @@ class MetaMorpho:
         # todo: ensure these details will not changes
         if not cached_details_morpho:
             # MORPHO() call
-            morphoAddress = self.contract.functions.MORPHO().call()
+            morpho_address = self.contract.functions.MORPHO().call()
             self.symbol = self.contract.functions.symbol().call()
             self.name = self.contract.functions.name().call()
             self.asset = self.contract.functions.asset().call()
@@ -33,7 +33,7 @@ class MetaMorpho:
             cache_morpho_details(
                 self.address,
                 {
-                    "morphoAddress": morphoAddress,
+                    "morpho_address": morpho_address,
                     "symbol": self.symbol,
                     "name": self.name,
                     "asset": self.asset,
@@ -42,7 +42,7 @@ class MetaMorpho:
 
         else:
             # Use the cached details
-            morphoAddress = cached_details_morpho["morphoAddress"]
+            morpho_address = cached_details_morpho["morphoAddress"]
             self.symbol = cached_details_morpho["symbol"]
             self.name = cached_details_morpho["name"]
             self.asset = cached_details_morpho["asset"]
@@ -51,49 +51,49 @@ class MetaMorpho:
         cached_details_tokens = get_token_details(self.asset)
         if not cached_details_tokens:
             # Fetch the details because they're not in the cache
-            self.assetContract = web3.eth.contract(
+            self.asset_contract = web3.eth.contract(
                 address=self.asset, abi=json.load(open("abis/erc20.json"))
             )
-            self.assetDecimals = self.assetContract.functions.decimals().call()
-            self.assetSymbol = self.assetContract.functions.symbol().call()
-            self.assetFactor = pow(10, self.assetDecimals)
+            self.asset_decimals = self.asset_contract.functions.decimals().call()
+            self.asset_symbol = self.asset_contract.functions.symbol().call()
+            self.asset_factor = pow(10, self.asset_decimals)
             # Cache these details for future use
             cache_token_details(
                 self.asset,
                 {
-                    "decimals": self.assetDecimals,
-                    "symbol": self.assetSymbol,
-                    "factor": pow(10, self.assetDecimals),
+                    "decimals": self.asset_decimals,
+                    "symbol": self.asset_symbol,
+                    "factor": pow(10, self.asset_decimals),
                 },
             )
         else:
             # Use the cached details
-            self.assetDecimals = cached_details_tokens["decimals"]
-            self.assetSymbol = cached_details_tokens["symbol"]
-            self.assetFactor = cached_details_tokens["factor"]
+            self.asset_decimals = cached_details_tokens["decimals"]
+            self.asset_symbol = cached_details_tokens["symbol"]
+            self.asset_factor = cached_details_tokens["factor"]
 
-        self.blue = MorphoBlue(web3, morphoAddress, "")
-        self.initMarkets()
+        self.blue = MorphoBlue(web3, morpho_address, "")
+        self.init_markets()
 
     def fetch_market_data(self, market):
         position = market.position(self.address)
-        marketData = market.marketData()
-        return (market, position, marketData)
+        market_data = market.market_data()
+        return (market, position, market_data)
 
-    def totalAssets(self):
+    def total_assets(self):
         return self.contract.functions.totalAssets().call() / pow(
-            10, self.assetDecimals
+            10, self.asset_decimals
         )
 
     # separate to allow for a thread call
     def fetch_market(self, index):
         """Fetch and add a single market by index."""
-        market = self.blue.addMarket(
+        market = self.blue.add_market(
             self.contract.functions.withdrawQueue(index).call()
         )
         return market
 
-    def initMarkets(self):
+    def init_markets(self):
         self.markets = []
         nb = self.contract.functions.withdrawQueueLength().call()
 
@@ -109,28 +109,28 @@ class MetaMorpho:
                 market = future.result()
                 self.markets.append(market)
 
-    def getMarketByCollateral(self, collateral):
+    def get_market_by_collateral(self, collateral):
         for m in self.markets:
-            if collateral == m.collateralTokenSymbol:
+            if collateral == m.collateral_token_symbol:
                 return m
         print(f"Market with collateral {collateral} doesn't exist for the MetaMorpho")
 
-    def getIdleMarket(self):
-        return list(filter(lambda x: x.isIdleMarket(), self.markets))[0]
+    def get_idle_market(self):
+        return list(filter(lambda x: x.is_idle_market(), self.markets))[0]
 
-    def hasIdleMarket(self):
-        return len(list(filter(lambda x: x.isIdleMarket(), self.markets))) > 0
+    def has_idle_market(self):
+        return len(list(filter(lambda x: x.is_idle_market(), self.markets))) > 0
 
-    def getBorrowMarkets(self):
-        return filter(lambda x: not x.isIdleMarket(), self.markets)
+    def get_borrow_markets(self):
+        return filter(lambda x: not x.is_idle_market(), self.markets)
 
     def summary(self):
-        totalAssets = self.totalAssets()
+        total_assets = self.total_assets()
         now = datetime.datetime.now()
         print(
-            f"{self.symbol} - {self.name} - Assets: {totalAssets:,.2f} - {now:%H:%M:%S}"
+            f"{self.symbol} - {self.name} - Assets: {total_assets:,.2f} - {now:%H:%M:%S}"
         )
-        vaultRate = 0.0
+        vault_rate = 0.0
         liquidity = 0.0
 
         # Get data in parallel
@@ -140,64 +140,67 @@ class MetaMorpho:
             futures = [
                 executor.submit(self.fetch_market_data, m)
                 for m in self.markets
-                if not m.isIdleMarket()
+                if not m.is_idle_market()
             ]
             for future in as_completed(futures):
                 try:
-                    market, position, marketData = future.result()
-                    vaultRate += marketData.supplyRate * position.supplyAssets
+                    market, position, market_data = future.result()
+                    vault_rate += market_data.supply_rate * position.supply_assets
                     share = (
-                        position.supplyAssets / totalAssets * 100.0
-                        if totalAssets
+                        position.supply_assets / total_assets * 100.0
+                        if total_assets
                         else 0
                     )
                     metaRepresent = (
-                        position.supplyAssets / marketData.totalSupplyAssets * 100.0
-                        if marketData.totalSupplyAssets
+                        position.supply_assets / market_data.total_supply_assets * 100.0
+                        if market_data.total_supply_assets
                         else 0
                     )
                     liquidity += (
-                        marketData.totalSupplyAssets - marketData.totalBorrowAssets
+                        market_data.total_supply_assets
+                        - market_data.total_borrow_assets
                     )
                     print(
-                        f"{market.name()} - rates: {marketData.supplyRate*100.0:.2f}%/{marketData.borrowRate*100.0:.2f}%[{marketData.borrowRateAtTarget*100.0:.2f}%] "
-                        f"exposure: {position.supplyAssets:,.0f} ({share:.1f}%), util: {marketData.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}% "
+                        f"{market.name()} - rates: {market_data.supply_rate*100.0:.2f}%/{market_data.borrow_rate*100.0:.2f}%[{market_data.borrow_rate_at_target*100.0:.2f}%] "
+                        f"exposure: {position.supply_assets:,.0f} ({share:.1f}%), util: {market_data.utilization*100.0:.1f}%, vault %: {metaRepresent:.1f}% "
                     )
                 except Exception as exc:
                     print(f"Market data fetch generated an exception: {exc}")
 
-        if self.hasIdleMarket():
-            m = self.getIdleMarket()
+        if self.has_idle_market():
+            m = self.get_idle_market()
             position = m.position(self.address)
-            marketData = m.marketData()
-            vaultRate += marketData.supplyRate * position.supplyAssets
-            share = position.supplyAssets / totalAssets * 100.0 if totalAssets else 0
+            market_data = m.market_data()
+            vault_rate += market_data.supply_rate * position.supply_assets
+            share = position.supply_assets / total_assets * 100.0 if total_assets else 0
             metaRepresent = (
-                position.supplyAssets / marketData.totalSupplyAssets * 100.0
-                if marketData.totalSupplyAssets
+                position.supply_assets / market_data.total_supply_assets * 100.0
+                if market_data.total_supply_assets
                 else 0
             )
-            liquidity += marketData.totalSupplyAssets - marketData.totalBorrowAssets
+            liquidity += (
+                market_data.total_supply_assets - market_data.total_borrow_assets
+            )
             print(
                 f"{m.name()} - "
-                + f"exposure: {position.supplyAssets:,.0f} ({share:.1f}%), vault %: {metaRepresent:.1f}%"
+                + f"exposure: {position.supply_assets:,.0f} ({share:.1f}%), vault %: {metaRepresent:.1f}%"
             )
 
-        if totalAssets > 0:
-            vaultRate = vaultRate / totalAssets
+        if total_assets > 0:
+            vault_rate = vault_rate / total_assets
         else:
-            vaultRate = 0.0
+            vault_rate = 0.0
         print(
-            f"{self.symbol} rate {vaultRate*100.0:.2f}%, total liquidity {liquidity:,.0f}"
+            f"{self.symbol} rate {vault_rate*100.0:.2f}%, total liquidity {liquidity:,.0f}"
         )
 
     def rate(self):
-        totalAssets = self.totalAssets()
-        vaultRate = 0.0
-        for m in self.getBorrowMarkets():
+        total_assets = self.total_assets()
+        vault_rate = 0.0
+        for m in self.get_borrow_markets():
             position = m.position(self.address)
-            marketData = m.marketData()
-            vaultRate += marketData.supplyRate * position.supplyAssets
+            market_data = m.market_data()
+            vault_rate += market_data.supply_rate * position.supply_assets
 
-        vaultRate = vaultRate / totalAssets
-        return vaultRate
+        vault_rate = vault_rate / total_assets
+        return vault_rate
